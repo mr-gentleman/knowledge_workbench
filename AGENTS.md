@@ -3,6 +3,18 @@
 Applies throughout Knowledge Workbench to Codex, Claude, and human contributors.
 Requested by #chris; recorded by #codex 2026-10-21; revised by #claude 2026-10-21.
 
+## Orientation — read before design work
+
+The Workbench is the human stewardship surface for the AC Data Oracle's knowledge
+layer (metric dictionary): SMEs author metric candidates and SQL physical
+implementations (PIs), which are validated, promoted to canon, and served to the Oracle.
+It replaces the Google Sheets maintenance path.
+
+1. [docs/plans/streamlit-app-master-plan.md](docs/plans/streamlit-app-master-plan.md) — scope, terminology, identity, provenance, V1 vs deferred.
+2. [docs/plans/streamlit-app-technical-build-plan.md](docs/plans/streamlit-app-technical-build-plan.md) — wins over the master plan on conflicts.
+3. [docs/handoff-2026-10-16.md](docs/handoff-2026-10-16.md) "Decisions made" — settled schema/lifecycle choices; don't relitigate. Wins over both plans.
+4. [docs/features.md](docs/features.md) — current tasks and status.
+
 ## Philosophy
 
 A reliable, understandable internal app with proportionate effort. Protect data
