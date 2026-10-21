@@ -1,103 +1,103 @@
 # Shared engineering instructions
 
 Applies throughout Knowledge Workbench to Codex, Claude, and human contributors.
-Requested by #chris; recorded by #codex on 2026-10-21.
+Requested by #chris; recorded by #codex 2026-10-21; revised by #claude 2026-10-21.
 
 ## Philosophy
 
-Build a reliable, understandable internal app with proportionate engineering effort.
-Favor delivery and simple, conventional structure. Protect data integrity without
-adding enterprise-scale machinery for hypothetical needs.
+A reliable, understandable internal app with proportionate effort. Protect data
+integrity; skip enterprise machinery for hypothetical needs.
 
 **Implement the smallest coherent solution for the current requirement; justify
 new dependencies and abstraction layers; remove superseded code.**
 
-- Keep one authoritative implementation of each business rule.
-- Prefer direct, readable code and clear names. Avoid speculative frameworks,
-  generic base classes, pass-through wrappers, and configuration for unused cases.
-- Split modules by responsibility when it makes changes easier to understand.
-  Neither more files nor fewer lines is automatically better architecture.
-- Refactor a concrete obstacle or risk; do not turn routine feature work into an
-  unrelated rewrite. Explain the problem and smallest useful correction.
-- Optimize observed friction or evident unnecessary work before adding caching,
-  background jobs, or other infrastructure.
-- Remove obsolete paths and unused helpers introduced or superseded by your work.
-  Preserve unrelated work by other contributors.
+- One authoritative implementation of each business rule.
+- Direct, readable code and clear names. No speculative frameworks, generic base
+  classes, pass-through wrappers, or configuration for unused cases.
+- Refactor only to remove a concrete obstacle or risk — not as a side quest
+  during feature work.
+- Remove paths your work made obsolete. Leave other contributors' work alone.
+
+## Project facts
+
+- Streamlit in Snowflake, **container runtime** (Python 3.11, Streamlit ≥ 1.50).
+  Compute pool `SYSTEM_COMPUTE_POOL_CPU` runs Python; warehouse `BIZ_AI_WH` runs SQL.
+- Connect with `st.connection("snowflake").session()` — not `get_active_session()`.
+- Acting user comes from `st.user` — never a form field, never `CURRENT_USER()`
+  (in the deployed app that can be the service user).
+- The app runs with **owner's rights** as `WORKBENCH_APP`, which writes only
+  `AI_PLATFORM.WORKBENCH`. Never grant it anything on `AI_PLATFORM.DICTIONARY`.
+- No pip installs at runtime: without an attached artifact repository the app has
+  only what ships with the runtime. A new package is a platform change, not a code change.
+- **Streamlit reruns the whole page on every click.** Every query on the page runs
+  on every interaction — that's the main latency lever.
+- After editing `app/` or `streamlit_app.py`, run `python scripts/build_single.py`.
+  `streamlit_app_single.py` is generated; never edit it by hand.
+- Tests: `python -m unittest discover -s tests -v` (Python 3.11 + `streamlit>=1.50`). They use an
+  in-memory fake for `app/repositories.py`, so they cover page and rule logic, not SQL.
+- Schema changes: add a new numbered file in `sql/`; never edit a shipped one.
 
 ## Architecture boundaries
 
-The existing structure is the starting point, not a mandate for additional layers:
+| Layer | Owns | Never contains |
+|---|---|---|
+| `streamlit_app.py` (page) | Layout, widgets, per-user draft + baseline state | SQL, business rules |
+| `app/services.py` | Workflow rules: save, no-op, conflicts, readiness, promotion | SQL, Streamlit widgets |
+| `app/repositories.py` | Parameterized SQL, conditional updates, transactions, history snapshots | Business decisions |
+| `app/db.py` | Session, trusted identity | Anything else |
+| `sql/` | Ordered migrations | Edits to shipped files |
 
-| Responsibility | Location / expectation |
-|---|---|
-| Presentation and editor state | Streamlit pages/forms; user-specific draft and baseline state |
-| Workflow rules and invariants | Services; save, no-op, readiness, promotion, and validation rules |
-| Persistence | Repositories; parameterized SQL, conditional updates, transaction boundaries, snapshots |
-| Connection and identity | Database/session helpers; trusted actor identity |
-| Schema changes | Ordered SQL migrations; do not edit shipped migrations |
+All statements in one transaction use the same session. A screen may coordinate
+several records without merging their layers.
 
-A unified metric editing screen may coordinate multiple backend records without
-collapsing their responsibilities. Keep transaction ownership explicit and use the
-same session for all statements in a transaction.
+## Bloat check — every change
 
-Treat the single-file deployment as a build artifact if that path is retained.
-Make generation reproducible and keep deployment configuration aligned with the
-actual entry point. Do not independently maintain two implementations.
+Answer before calling a change done. In the commit/PR summary write
+**"Bloat check: clean"**, or one line per item that isn't, with the reason.
 
-## Lightweight engineering scorecard
+| Check | Question | Red flags |
+|---|---|---|
+| **Separation of concerns** | Is each line in the layer that owns it (table above)? | SQL in the page; a rule decided in two places; services importing Streamlit |
+| **Modularity** | Can this change be understood by reading one or two files? | A one-field change touching 4+ files; new module or class with a single caller |
+| **Verbosity** | Could it be markedly shorter with nothing lost? | Wrappers that only forward; comments restating code; checks for impossible states; options nobody uses |
+| **Complexity** | Can save → validate → write → history be followed in one read? | Nesting deeper than 3; boolean flags that switch a function's behavior; clever one-liners |
+| **Latency** | How many queries does one click now cost? | Query in a loop; the same row fetched twice per rerun; unbounded `SELECT` with no `LIMIT`; loading data for a tab nobody opened |
+| **Dependencies** | Is a new package worth a platform change? | Package for something ~20 lines of code would do |
+| **Dead code** | Did anything become unused? | Old helpers left behind; commented-out code; a second copy of the same logic |
 
-At sprint end, assess these dimensions against current needs:
+These are judgment calls, not thresholds. Don't chase line counts, complexity
+scores, or coverage percentages, and don't split functions into meaningless
+wrappers to hit a number.
 
-| Dimension | Evidence to inspect |
-|---|---|
-| Separation of concerns | UI, workflow rules, and persistence have clear ownership; rules are not duplicated |
-| Understandability | Save → validate → write → history can be traced without excessive indirection |
-| Complexity | Branching/nesting is manageable; complex workflows are explicit and ordinary operations stay simple |
-| Duplication / dead code | No divergent source copies, unused helpers, abandoned paths, or speculative features |
-| Correctness | Conflicts, failed writes, revisions, validation, promotion, and serving behave predictably |
-| Efficiency | Query count and data volume suit the interaction; avoid repeated queries and unbounded loading |
-| Changeability | A field or rule change affects a small, predictable set of places |
+## Periodic review — on request
 
-Use **Green** (appropriate), **Yellow** (specific weakness, not blocking), or **Red**
-(correctness risk or materially obstructs planned work), with evidence. Use
-**Not assessed** when evidence is missing; do not infer Green from absence of tests.
-For every Yellow/Red, include the example, consequence, and smallest useful fix.
+When #chris asks (and before Oracle cutover), score the whole codebase on the same
+seven checks: **Green** (fine), **Yellow** (specific weakness, not blocking),
+**Red** (correctness risk or blocks planned work), or **Not assessed** (no evidence —
+never infer Green from missing tests). Each Yellow/Red gets an example, the
+consequence, and the smallest useful fix, filed as a backlog item. Record the dated
+result in `docs/features.md`. Before cutover, go deeper on transactions, revision
+handling, promotion, serving of last-passing revisions, and rollback.
 
-Lint findings, complexity hotspots, and duplication measurements are review signals,
-not quality scores. Do not chase arbitrary line counts, complexity thresholds,
-coverage percentages, or a composite numeric grade. Do not split functions into
-meaningless wrappers merely to lower a metric.
+## Verification
 
-## Verification and cadence
+- Tests where the risk is real: concurrency, transactions, revision binding,
+  promotion, serving. Not for copy or doc changes.
+- Say which kind of evidence you have — source reading, automated test, local run
+  against Snowflake, preview, or published app — and what remains unverified.
+  Never claim runtime behavior you didn't observe.
 
-- For each meaningful change, briefly check duplication, new abstractions, error
-  handling, and verification proportional to the actual risk. Explain what changed,
-  why, what was checked, and what remains unverified.
-- Use focused regression tests for concurrency, transaction rollback, revision
-  binding, promotion, and serving. Avoid tests that merely mirror implementation
-  or add ceremony to trivial document/UI-copy changes.
-- Distinguish source inspection, automated tests, preview verification, and
-  published-app verification. Do not claim runtime behavior was tested when it was not.
-- At sprint end, record a compact dated scorecard in the shared backlog and add
-  actionable findings as normal tasks. Reuse existing IDs rather than duplicating them.
-- Before Oracle cutover, review transactions, revision handling, promotion,
-  serving of last-passing revisions, and rollback more deeply.
-- Reviews should improve the app without becoming a separate bureaucracy or a
-  standing excuse to stop delivery.
+## Collaboration
 
-## Collaboration and task tracking
-
-[docs/features.md](docs/features.md) is the shared task/status source of truth.
-These instructions contain standing philosophy; keep implementation tasks there.
-Use origin tags #codex / #claude / #chris; retain #existing when authorship is unknown.
-Origin is not ownership. Keep stable IDs and add completion evidence.
-
-Read the current file before editing shared work; preserve concurrent changes and
-resolve version conflicts against the latest content. Keep design rationale in
-docs/app-design-notes.md and import constraints in docs/open-items.md.
-
-
-Record meaningful architecture/code decisions in docs/decisions.md with date, origin,
-context, rationale, alternatives, and consequences. Link tasks and commits when known.
-Keep historical entries; supersede them explicitly instead of rewriting the past.
-Routine changes need only Git history, not a decision entry.
+- [docs/features.md](docs/features.md) is the task/status source of truth; this
+  file holds standing guidance only. Design rationale → `docs/app-design-notes.md`;
+  import constraints → `docs/open-items.md`.
+- Origin tags #codex / #claude / #chris (#existing when unknown). Origin ≠ owner.
+  Keep stable IDs; add dated completion evidence.
+- One branch per change: `codex/<topic>`, `claude/<topic>`. Merge to `main` via
+  review unless #chris says otherwise. Fetch and read the latest before editing
+  shared files; preserve others' concurrent changes.
+- Never commit secrets — `.gitignore` excludes `*secret*`, `.env`, `.snowflake/`.
+- Record meaningful architecture/code decisions in [docs/decisions.md](docs/decisions.md):
+  date, origin, context, rationale, alternatives, consequences; link tasks and commits.
+  Supersede entries explicitly rather than rewriting them. Routine changes need only Git history.

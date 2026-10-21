@@ -2,7 +2,7 @@
 
 Shared working list for Chris, Claude, and Codex. Update this file rather than keeping separate assistant to-do lists. Last organized: 2026-10-21.
 
-Standing engineering philosophy and coding instructions: [AGENTS.md](../AGENTS.md). Both Claude and Codex use the same guidance. At sprint end, add a dated Green/Yellow/Red (or Not assessed) scorecard here with evidence and link actionable findings to backlog IDs.
+Standing engineering philosophy and coding instructions: [AGENTS.md](../AGENTS.md). Both Claude and Codex use the same guidance. Every change gets the AGENTS.md bloat check; on request, add a dated whole-codebase review under "Engineering reviews" below and file actionable findings as backlog IDs.
 
 ## How to use this list
 
@@ -164,6 +164,7 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | PLAT-02 | TODO | P2 / V1 | Complete Git-backed deployment (existing plan: GitLab-backed workspace; CI later). Define how this GitHub collaboration repo stays aligned with the actual deployment source. Verify published version, not only workspace preview. | #existing #codex — planned feature |
 | PLAT-03 | VERIFY | P1 / V1 | Confirm deployed owner-role isolation from DICTIONARY, revoke UPDATE on revision, and confirm the intended SYSADMIN role linkage. Review documented broad CoCo write grants before SME rollout. | #existing — isolation documented; remaining grants/checks need current verification |
 | PLAT-04 | TODO | P3 / Next | Add operational logging: operation ID, actor, outcome, duration, query ID. Include `db_lock` wait time so DEC-004's latency cost is measured, not estimated. Today only failed edit saves are logged (`logging.exception`). | #existing — planned feature |
+| PLAT-05 | TODO | P3 / Next | Cut per-click query load. Every interaction reruns the page: `list_candidates` (no `LIMIT`), `get_candidate`, and the full revision history with JSON snapshots, even when the History tab isn't opened. Smallest fix: `LIMIT` the sidebar list; load history only when asked for (toggle/button). Revisit when record counts grow or clicks feel slow. | #claude — code observation, 2026-10-21 review; no latency measured |
 
 ## Current baseline / completion evidence
 
@@ -186,3 +187,19 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 
 - REL-06: `db_lock()` added; `_in_txn` and `get_candidate` hold it (DEC-004). Two tests added (baseline read waits for an open transaction; BEGIN only in `_in_txn`). Not run locally: this machine lacks Python 3.10+/Streamlit. Reviewer: run `python -m unittest discover -s tests -v`.
 
+## Engineering reviews
+
+### 2026-10-21 — baseline (#claude; source reading only)
+
+Scope: `main` at f1800e7 plus a since-dropped Claude REL-01 branch (superseded by Codex's cece660), ~400 lines of app source. Evidence: source reading and fake-repository tests. Nothing was checked against Snowflake or the published app.
+
+| Check | Rating | Evidence → smallest fix |
+|---|---|---|
+| Separation of concerns | Green | SQL only in `repositories.py`, rules only in `services.py`, page holds UI + editor state. Minor: the department list (`DEPARTMENTS`) lives in the page; move it to services or a table when a second screen needs it. |
+| Modularity | Green | REL-01 touched the page and one service; the layers held. |
+| Verbosity | Green | Small, direct code; no wrappers or frameworks. |
+| Complexity | Yellow | `streamlit_app.py` now carries editor-state logic (~140 lines). Fine today. When the PI editor lands (UX-01/02), give each screen its own module instead of growing one file. |
+| Latency | Yellow | 3 queries per click, one unbounded, plus full history loaded every time → PLAT-05. No timings measured. |
+| Dependencies | Green | Runtime-shipped packages only. |
+| Dead code / duplication | Yellow | `streamlit_app_single.py` is now generated (now `scripts/build_single.py`), but nothing checks bundle drift before deploy → PLAT-01. `just_created` is written and never read → REL-02. |
+| Correctness | Yellow | REL-01 fixed (cece660), not yet verified in Snowflake or the published app; REL-02 open. Later the same day: shared-connection transactions found (REL-06, DEC-004) and stale baseline on reopen (REL-07). |
