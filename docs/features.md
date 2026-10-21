@@ -15,15 +15,39 @@ Standing engineering philosophy and coding instructions: [AGENTS.md](../AGENTS.m
 - Evidence labels below distinguish **code observation**, **suspected defect**, **documented verification**, and **planned feature**.
 - This file is the current task/status source of truth. Design rationale stays in [app-design-notes.md](app-design-notes.md); import constraints stay in [open-items.md](open-items.md). Their older next-step lists are historical. If moved to an issue board later, link the issues here and explicitly choose one status source.
 
-## First pass / suggested order
+## Next sprint / six-step delivery plan
 
-1. Reproduce and fix stale-edit protection (REL-01); protect create/save flow (REL-02).
-2. Make the deployed source/build path explicit and repeatable (PLAT-01).
-3. Build the metric workspace with physical implementations on the same screen (UX-01, UX-02).
-4. Make existing candidates and canon discoverable (FIND-01, FIND-02).
-5. Complete validation → promotion → serving before cutover (CHECK / LIFE / SERVE).
+Product priorities from **#chris**; sequencing and refinements by **#codex**, recorded 2026-10-21. This replaces the earlier five-step ordering. These steps organize the existing task IDs; they are not a second status tracker or a claim that the work is complete.
 
-Correctness work can proceed alongside UX work. Search/discovery and the unified editor are explicit product priorities from Chris, not incidental polish.
+**Goal:** deliver the full metric workflow: find existing knowledge → create/edit identity and physical implementations → validate → promote to canon, then bring legacy knowledge through that system.
+
+| Order | Work | Completion outcome | Backlog IDs |
+|---|---|---|---|
+| 1 | Stabilize saving and deployment | Concurrent edits cannot silently overwrite work; repeat submission cannot unintentionally create another candidate; saves/history remain consistent; the published code comes from an explicit, repeatable build/deploy path. | REL-01–05; PLAT-01–03; HIST-05 |
+| 2 | Build the unified metric workspace | Tightened candidate identity form with implementations beneath it: Add implementation, SQL editing, and saved/validation status. Identity and PIs remain separate backend records but share a coherent editing experience. | UX-01–03 |
+| 3 | Add validation and promotion | A readiness checklist gates promotion on a description and at least one PI passing checks for its current revision, linked to an active fact table. Promotion establishes canon; canon remains editable afterward. | CHECK-01–04; LIFE-01, LIFE-03 |
+| 4 | Add a lean fact-table interface | Separate browse/create/edit screen for table name, definition, grain, key, time field, required filters, and gotchas. Maintain the table knowledge referenced by implementations; defer joins/dimensions. | UX-04 |
+| 5 | Finish discovery and editing UX | Search candidates and canon across descriptive fields; provide clear status labels, useful result previews, readable history diffs, and a clear path from result to metric workspace. | FIND-01–02; HIST-01–02; UX-01, UX-03 |
+| 6 | Import and verify legacy knowledge | Trial import of five representative metrics, then all legacy content with ID/reference translation. Verify definitions, PIs, authorship, and fact-table associations; surface exceptions clearly. | SERVE-02; CHECK-01–03; LIFE-01–02 |
+
+### Sequencing refinements
+
+- **Design discovery from the start.** Step 5 is completion/polish, not the first consideration of navigation. During step 2 establish “Find a metric → open its workspace,” plus a clear New metric action. Search/discovery and the unified editor are explicit product priorities.
+- **Seed the fact-table registry before testing promotion.** Step 3 requires active fact-table records, even if the separate interface arrives in step 4. Populate the initial registry through a controlled seed/import; a sophisticated editor is not a prerequisite for proving the metric workflow.
+- **Bring the lean fact-table interface into this sprint.** UX-04 was previously Next; its basic interface is now part of this plan. Richer table workflows, joins, and dimensions remain deferred.
+- **Start the five-record import trial early.** Run it as soon as the relevant schema/workflow supports it, alongside workspace development, so representative legacy data exposes missing fields and awkward UX. Step 6 completes the full migration; do not wait until all polish is finished to inspect real examples.
+- **Do not assume legacy means validated.** Preserve original authorship and relationships, run checks, promote qualifying records, and leave exceptions as candidates with clear reasons. Load fact tables → candidates plus PIs → validate → promote. Follow [open-items.md](open-items.md) for ID translation and downstream reference remapping.
+- **Canonical means established and usable, not permanently finished.** Continue editing canonical definitions and adding implementations after promotion. Keep the last passing PI revision available for serving while later edits are unfinished or broken.
+- **Keep the first release focused.** Defer semantic search, automatic merging, tags, elaborate combined timelines, and advanced fact-table features. Deliver good text search, a coherent editor, visible readiness, and reliable saves first.
+- Correctness work and UX design can proceed alongside one another. The sequence expresses delivery dependencies rather than requiring every task in a row to finish before any work starts on the next.
+
+### Two release milestones
+
+**A — Usable authoring app:** the published app supports discovery, candidate/canon editing, PIs, validation/promotion, and the lean fact-table interface; legacy migration and exception handling are verified. Complete the relevant reliability and access checks. This milestone does not mean the Oracle has switched sources.
+
+**B — Oracle cutover / Sheets replacement:** additionally complete DICTIONARY publishing from last-passing PI snapshots (SERVE-01), test Oracle configuration and representative questions (SERVE-03), and exercise cutover/rollback (SERVE-04). Preserve remaining V1 lifecycle/restore requirements in the backlog; this sprint sequence does not silently remove them.
+
+At sprint end, record the lightweight engineering scorecard from [AGENTS.md](../AGENTS.md), with evidence and any actionable follow-up IDs.
 
 ## Reliability / possible data-loss or duplicate-write defects
 
@@ -87,7 +111,7 @@ Suggested by **#codex**, 2026-10-21; requested by **#chris**. Status remains TOD
 | UX-01 | TODO | P2 / V1 | Create one metric workspace: identity/definition plus its physical implementations (PIs), with fact-table context. Keep separate backend records but a coherent user-facing screen for candidate and canon. | #chris #codex #existing — planned feature |
 | UX-02 | TODO | P2 / V1 | Add/list/edit PIs within that workspace. Start with an empty state and Add implementation; show existing implementations as expandable entries. Spike a SQL editor with highlighting while typing, line numbers, and reliable paste. Preserve separate saved/validated states. | #chris #codex #existing — proposed layout; editor feasibility outstanding |
 | UX-03 | TODO | P2 / V1 | Tighten the identity form: clearer grouping/help text, obvious required fields, and hide free-text category until a controlled list exists. Keep name-only draft creation. | #chris #existing — planned improvement |
-| UX-04 | TODO | P3 / Next | Add fact-table create/edit UI. V1 still needs an available active fact-table registry for PI validation/import; a full editor can follow. | #existing — planned feature |
+| UX-04 | TODO | P2 / V1 | Add a lean separate fact-table browse/create/edit interface for name, definition, grain, key, time field, required filters, and gotchas. Seed/import active registry records before promotion testing; defer richer table workflows, joins, and dimensions. Included in the six-step sprint plan. | #existing #chris #codex — scope advanced from Next on 2026-10-21 |
 | UX-05 | TODO | P3 / Next | Add synonyms as separate records and include them in discovery. | #existing — planned feature |
 
 ## Validation / readiness
