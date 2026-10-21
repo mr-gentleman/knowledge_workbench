@@ -4,6 +4,7 @@
 # Source: app/db.py
 """Snowflake session + trusted viewer identity."""
 import os
+import threading
 
 import streamlit as st
 
@@ -14,6 +15,15 @@ def session():
     # Container runtime + local dev both use st.connection (local: ~/.snowflake/connections.toml).
     conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
     return conn.session()
+
+
+@st.cache_resource
+def db_lock() -> threading.RLock:
+    """One lock per app process (cache_resource survives reruns, even in the single-file build).
+    Every viewer shares one Snowflake connection, so an open transaction is visible to —
+    and joinable by — any other statement on it. Hold this for every transaction and for
+    every read that loads an editable baseline. See docs/decisions.md DEC-004."""
+    return threading.RLock()
 
 
 def viewer() -> str:
@@ -30,7 +40,6 @@ def viewer() -> str:
 
 def query(sql: str, params: list | None = None):
     return session().sql(sql, params=params or []).collect()
-
 
 
 # Source: app/repositories.py
@@ -55,19 +64,21 @@ def _snapshot(record_type: str, table: str, key: str, record_id: int,
 
 
 def _in_txn(fn):
-    s = session()
-    s.sql("BEGIN").collect()
-    try:
-        # Bind every statement, including the snapshot, to this transaction.
-        def execute(sql, params=None):
-            return s.sql(sql, params=params or []).collect()
+    # The only place a transaction starts. The lock keeps other viewers' statements
+    # out of it on the shared connection (DEC-004).
+    with db_lock():
+        s = session()
+        s.sql("BEGIN").collect()
+        try:
+            def execute(sql, params=None):
+                return s.sql(sql, params=params or []).collect()
 
-        out = fn(execute)
-        s.sql("COMMIT").collect()
-        return out
-    except Exception:
-        s.sql("ROLLBACK").collect()
-        raise
+            out = fn(execute)
+            s.sql("COMMIT").collect()
+            return out
+        except Exception:
+            s.sql("ROLLBACK").collect()
+            raise
 
 
 # ── candidates ──────────────────────────────────────────────────────────────
@@ -84,7 +95,10 @@ def list_candidates(search: str = ""):
 
 
 def get_candidate(candidate_id: int):
-    rows = query(f"SELECT * FROM {SCHEMA}.metric_candidate WHERE candidate_id = ?", [candidate_id])
+    # Loads an editable baseline, so it must not see another save's uncommitted
+    # revision (DEC-004). Lists, search and history stay unlocked.
+    with db_lock():
+        rows = query(f"SELECT * FROM {SCHEMA}.metric_candidate WHERE candidate_id = ?", [candidate_id])
     return rows[0].as_dict() if rows else None
 
 
@@ -218,7 +232,6 @@ def save_candidate_edit(candidate_id: int, expected_revision: int, fields: dict,
         return Outcome(False, "Someone saved a newer version since you opened this. "
                               "Your edits are still in the form — reload to compare.")
     return Outcome(True, "Saved.", candidate_id, rev, _collisions(fields["full_name"], candidate_id))
-
 
 
 # Source: streamlit_app.py

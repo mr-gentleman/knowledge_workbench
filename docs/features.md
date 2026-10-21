@@ -60,6 +60,8 @@ These are separate from history presentation improvements. An overwritten edit i
 | REL-03 | VERIFY | P1 / V1 | Verify no-op handling and atomic record/history saves in the deployed app. Unchanged Save creates no revision; a content change creates exactly one matching snapshot; a failed snapshot write must not leave the content update committed. | #existing — implementation present; deployed acceptance outstanding |
 | REL-04 | TODO | P2 / V1 | Refresh the header, revision, sidebar label, and editor baseline after successful save without losing feedback. Failed saves retain draft inputs. | #existing — code observation |
 | REL-05 | TODO | P1 / V1 | Add focused regression coverage for REL-01/02/03 and the later validation/promotion invariants. Record deployed smoke-test evidence as well as automated checks. | #existing #codex — six concurrency/UI/transaction-routing tests now pass locally; create protection and future workflow tests remain open |
+| REL-06 | VERIFY | P1 / V1 | Serialize transactions and editable-baseline reads on the shared app connection (DEC-004). All viewers share one Snowflake session, so without this another viewer's statements can join an open transaction, and an editor can capture an uncommitted revision that later rolls back. Acceptance: two published-app sessions saving within the same second both land intact with one snapshot each; opening the editor during a save waits rather than reading uncommitted state. | #claude #codex — shared session observed 2026-10-21 (two windows, one SESSION_ID); lock + 2 tests written, not yet run |
+| REL-07 | TODO | P2 / V1 | Refresh the editable baseline on reopening a record. Editor state persists per record for the browser session, so: open #1, leave, someone else saves #1, return → stale content and revision shown (History shows newer) and the next save fails as a conflict with no visible reason. Refetch on arrival when no submitted draft exists; keep the baseline fixed while editing. | #claude — code observation on cece660 |
 
 ### REL-01 implementation handoff — optimistic concurrency
 
@@ -161,7 +163,7 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | PLAT-01 | TODO | P1 / V1 | Establish a reproducible source → deployed app path. Single-file header says generated, but no generator is checked in; snowflake.yml targets the multifile app. Choose/document the deployment path, add generation if keeping the bundle, and prevent source/bundle drift. Diagnose package inclusion before concluding multiple files are unsupported. | #codex — repository observation; runtime cause not established |
 | PLAT-02 | TODO | P2 / V1 | Complete Git-backed deployment (existing plan: GitLab-backed workspace; CI later). Define how this GitHub collaboration repo stays aligned with the actual deployment source. Verify published version, not only workspace preview. | #existing #codex — planned feature |
 | PLAT-03 | VERIFY | P1 / V1 | Confirm deployed owner-role isolation from DICTIONARY, revoke UPDATE on revision, and confirm the intended SYSADMIN role linkage. Review documented broad CoCo write grants before SME rollout. | #existing — isolation documented; remaining grants/checks need current verification |
-| PLAT-04 | TODO | P3 / Next | Add operational logging: operation ID, actor, outcome, duration, query ID. | #existing — planned feature |
+| PLAT-04 | TODO | P3 / Next | Add operational logging: operation ID, actor, outcome, duration, query ID. Include `db_lock` wait time so DEC-004's latency cost is measured, not estimated. Today only failed edit saves are logged (`logging.exception`). | #existing — planned feature |
 
 ## Current baseline / completion evidence
 
@@ -179,3 +181,8 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 - REL-04: edit-save refresh implemented; create flow remains unchanged.
 - PLAT-01: reproducible single-file generator added; actual deployment/package troubleshooting remains open.
 - [Claude verification handoff](concurrency-handoff.md) · [Engineering decision history](decisions.md).
+
+## Implementation evidence — 2026-10-21 (#claude)
+
+- REL-06: `db_lock()` added; `_in_txn` and `get_candidate` hold it (DEC-004). Two tests added (baseline read waits for an open transaction; BEGIN only in `_in_txn`). Not run locally: this machine lacks Python 3.10+/Streamlit. Reviewer: run `python -m unittest discover -s tests -v`.
+

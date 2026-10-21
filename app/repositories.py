@@ -1,6 +1,6 @@
 """Persistence. Owns SQL and transaction boundaries; no business rules."""
 
-from app.db import SCHEMA, query, session
+from app.db import SCHEMA, db_lock, query, session
 
 
 class StaleEdit(Exception):
@@ -20,19 +20,21 @@ def _snapshot(record_type: str, table: str, key: str, record_id: int,
 
 
 def _in_txn(fn):
-    s = session()
-    s.sql("BEGIN").collect()
-    try:
-        # Bind every statement, including the snapshot, to this transaction.
-        def execute(sql, params=None):
-            return s.sql(sql, params=params or []).collect()
+    # The only place a transaction starts. The lock keeps other viewers' statements
+    # out of it on the shared connection (DEC-004).
+    with db_lock():
+        s = session()
+        s.sql("BEGIN").collect()
+        try:
+            def execute(sql, params=None):
+                return s.sql(sql, params=params or []).collect()
 
-        out = fn(execute)
-        s.sql("COMMIT").collect()
-        return out
-    except Exception:
-        s.sql("ROLLBACK").collect()
-        raise
+            out = fn(execute)
+            s.sql("COMMIT").collect()
+            return out
+        except Exception:
+            s.sql("ROLLBACK").collect()
+            raise
 
 
 # ── candidates ──────────────────────────────────────────────────────────────
@@ -49,7 +51,10 @@ def list_candidates(search: str = ""):
 
 
 def get_candidate(candidate_id: int):
-    rows = query(f"SELECT * FROM {SCHEMA}.metric_candidate WHERE candidate_id = ?", [candidate_id])
+    # Loads an editable baseline, so it must not see another save's uncommitted
+    # revision (DEC-004). Lists, search and history stay unlocked.
+    with db_lock():
+        rows = query(f"SELECT * FROM {SCHEMA}.metric_candidate WHERE candidate_id = ?", [candidate_id])
     return rows[0].as_dict() if rows else None
 
 

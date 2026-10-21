@@ -53,3 +53,43 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   to the current modules/names, not a general Python bundler. Update it and its checks
   if module names/import patterns change. snowflake.yml still targets the modular app.
 - Related: PLAT-01; scripts/build_single.py; streamlit_app_single.py.
+
+## DEC-004 — One process-wide lock for transactions and editable-baseline reads
+
+- Date: 2026-10-21. Origin: #claude (finding), #codex (dirty-baseline sequence and
+  narrowed read scope), decided by #chris. Partially supersedes DEC-002.
+- Status: implemented in source; Snowflake/load verification pending.
+- Context: DEC-002 gives each save "one explicit transaction session", but every viewer
+  shares that session. Container runtime runs one app instance for all viewers, and
+  `st.connection("snowflake")` is a process-wide cached resource; Snowpark sessions wrap
+  its single connection, and transactions belong to the connection. Evidence: on
+  2026-10-21 at about 17:44 CT, two browser windows on the published app ran all 8 of
+  their queries under one Snowflake SESSION_ID (5296369438280563,
+  ACCOUNT_USAGE.QUERY_HISTORY). So another viewer's statements can run inside an open
+  transaction, and a COMMIT or ROLLBACK can take both. Second hazard (#codex): a save
+  bumps rev 5 to 6 uncommitted; another viewer opens the editor and captures rev 6; the
+  save rolls back; a later save creates a different rev 6; the stale draft's
+  `revision_no = 6` check passes and silently overwrites it.
+- Decision: `db.db_lock()` is an `RLock` held by `st.cache_resource` (one per process,
+  surviving reruns in the single-file build too). `_in_txn` holds it for the whole
+  transaction; `get_candidate` holds it because it loads the editable baseline. Lists,
+  search and history stay unlocked: at worst they briefly show an in-flight change
+  that may roll back, which self-corrects on the next rerun and never feeds a write.
+- Rule: any future read that loads something editable or feeds a write check (PI editor,
+  promotion checks) takes `db_lock()` too. A test enforces that BEGIN appears only in `_in_txn`.
+- Alternatives: (1) connection per browser session: isolation, but we own token
+  refresh, reconnects and cleanup outside `st.connection`; (2) pooled/per-save
+  connection: same lifecycle work; (3) lock every read: simplest rule, but browsing
+  viewers queue on each other for no safety gain.
+- Consequences: saves serialize (rare, under 1 s each). Two viewers opening a metric in
+  the same ~0.2 s wait ~0.1-0.3 s once; estimated ~3% of opens with 5 heavy users.
+  Unlocked reads may execute inside another viewer's transaction; harmless because
+  they never write.
+- Upgrade triggers: noticeable open latency: reader-writer lock (readers never block
+  readers) or per-save connection (removes read locking; then also consider an
+  `updated_at` version token in the conditional UPDATE). More than one app instance, or
+  long/frequent writes: per-save connection. SQL validation (CHECK) runs authored SQL
+  for seconds: give it its own connection from the start; never run it under this lock
+  or on the shared connection inside a transaction.
+- Related: REL-03, REL-06, PLAT-04; app/db.py, app/repositories.py, tests/test_concurrency.py.
+

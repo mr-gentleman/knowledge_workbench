@@ -1,7 +1,9 @@
 """Local regression tests; Snowflake transaction behavior still needs live testing."""
 import copy
+import threading
 import unittest
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch, Mock
 
 from streamlit.testing.v1 import AppTest
@@ -107,6 +109,38 @@ class TransactionTests(unittest.TestCase):
         statements = [call.args[0] for call in s.sql.call_args_list]
         self.assertFalse(any('INSERT INTO' in q for q in statements))
         self.assertEqual(statements[-1], 'ROLLBACK')
+
+
+class LockTests(unittest.TestCase):
+    """DEC-004: all viewers share one connection, so transactions and baseline reads take db_lock."""
+
+    def test_baseline_read_waits_for_open_transaction(self):
+        in_txn, release, order = threading.Event(), threading.Event(), []
+
+        def write(execute):
+            in_txn.set()
+            release.wait(2)
+            order.append('write')
+
+        with patch.object(repo, 'session', return_value=Mock()), \
+                patch.object(repo, 'query', side_effect=lambda *a: order.append('read') or []):
+            writer = threading.Thread(target=repo._in_txn, args=(write,))
+            writer.start()
+            self.assertTrue(in_txn.wait(2))
+            reader = threading.Thread(target=repo.get_candidate, args=(1,))
+            reader.start()
+            reader.join(0.2)
+            self.assertTrue(reader.is_alive())  # blocked behind the open transaction
+            release.set()
+            writer.join(2)
+            reader.join(2)
+        self.assertEqual(order, ['write', 'read'])
+
+    def test_transactions_only_start_in_in_txn(self):
+        root = Path(__file__).resolve().parents[1]
+        sources = [*root.glob('app/*.py'), root / 'streamlit_app.py']
+        hits = {p.name: p.read_text().count('"BEGIN"') for p in sources if '"BEGIN"' in p.read_text()}
+        self.assertEqual(hits, {'repositories.py': 1})
 
 
 if __name__ == '__main__':

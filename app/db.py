@@ -1,5 +1,6 @@
 """Snowflake session + trusted viewer identity."""
 import os
+import threading
 
 import streamlit as st
 
@@ -10,6 +11,15 @@ def session():
     # Container runtime + local dev both use st.connection (local: ~/.snowflake/connections.toml).
     conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
     return conn.session()
+
+
+@st.cache_resource
+def db_lock() -> threading.RLock:
+    """One lock per app process (cache_resource survives reruns, even in the single-file build).
+    Every viewer shares one Snowflake connection, so an open transaction is visible to —
+    and joinable by — any other statement on it. Hold this for every transaction and for
+    every read that loads an editable baseline. See docs/decisions.md DEC-004."""
+    return threading.RLock()
 
 
 def viewer() -> str:
