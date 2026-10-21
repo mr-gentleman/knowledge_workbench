@@ -2,6 +2,8 @@
 
 Shared working list for Chris, Claude, and Codex. Update this file rather than keeping separate assistant to-do lists. Last organized: 2026-10-21.
 
+Standing engineering philosophy and coding instructions: [AGENTS.md](../AGENTS.md). Both Claude and Codex use the same guidance. At sprint end, add a dated Green/Yellow/Red (or Not assessed) scorecard here with evidence and link actionable findings to backlog IDs.
+
 ## How to use this list
 
 - Keep stable IDs; update an existing item instead of adding a duplicate. Keep completed items as the completion record.
