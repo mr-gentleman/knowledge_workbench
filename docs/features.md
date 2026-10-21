@@ -55,15 +55,15 @@ These are separate from history presentation improvements. An overwritten edit i
 
 | ID | Status | Priority / scope | Task and acceptance check | Origin / evidence |
 |---|---|---|---|---|
-| REL-01 | TODO | P1 / V1 | Preserve the revision originally loaded into the editor. Currently the page re-fetches `cand` during submit and supplies its latest revision to the edit service. Reproduce with two sessions: A opens rev 1; B saves rev 2; A submits. A must receive a conflict, retain its draft, and leave B's row unchanged. Persist the baseline until explicit reload or successful save. | #codex — suspected defect from code review; not reproduced in Snowflake |
+| REL-01 | VERIFY | P1 / V1 | Preserve the revision originally loaded into the editor. Currently the page re-fetches `cand` during submit and supplies its latest revision to the edit service. Reproduce with two sessions: A opens rev 1; B saves rev 2; A submits. A must receive a conflict, retain its draft, and leave B's row unchanged. Persist the baseline until explicit reload or successful save. | #codex — fix implemented; local regression tests passed; published Snowflake verification pending |
 | REL-02 | TODO | P1 / V1 | Prevent repeat creation on resubmit and navigate to the saved record. `just_created` is written but not consumed; the new form stays active. A repeated submit/retry must not create an unintended second candidate. Deliberate creation of another candidate remains possible. | #existing #codex — code observation |
 | REL-03 | VERIFY | P1 / V1 | Verify no-op handling and atomic record/history saves in the deployed app. Unchanged Save creates no revision; a content change creates exactly one matching snapshot; a failed snapshot write must not leave the content update committed. | #existing — implementation present; deployed acceptance outstanding |
 | REL-04 | TODO | P2 / V1 | Refresh the header, revision, sidebar label, and editor baseline after successful save without losing feedback. Failed saves retain draft inputs. | #existing — code observation |
-| REL-05 | TODO | P1 / V1 | Add focused regression coverage for REL-01/02/03 and the later validation/promotion invariants. Record deployed smoke-test evidence as well as automated checks. | #existing #codex — tests directory currently only a placeholder |
+| REL-05 | TODO | P1 / V1 | Add focused regression coverage for REL-01/02/03 and the later validation/promotion invariants. Record deployed smoke-test evidence as well as automated checks. | #existing #codex — six concurrency/UI/transaction-routing tests now pass locally; create protection and future workflow tests remain open |
 
 ### REL-01 implementation handoff — optimistic concurrency
 
-Suggested by **#codex**, 2026-10-21; requested by **#chris**. Status remains TODO until implemented and verified.
+Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. Status: VERIFY. See [concurrency-handoff.md](concurrency-handoff.md) for implemented scope, local checks, and Claude’s live verification steps. The following original design records the fuller proposal; V1 uses conflict messaging plus explicit reload/discard, with comparison/reconciliation UI deferred. See [decisions.md](decisions.md) for rationale.
 
 **Problem:** the page currently calls `get_candidate(selected)` on every rerun, including form submission, then passes that freshly fetched `REVISION_NO` to `save_candidate_edit`. This does not reliably represent the version the person originally edited.
 
@@ -170,3 +170,12 @@ Suggested by **#codex**, 2026-10-21; requested by **#chris**. Status remains TOD
 - Schema/tables/sequences and isolation were documented as verified. This backlog does not claim a new live verification.
 - Published deployment, no-op, concurrency, and duplicate-submit behavior still need the acceptance checks above.
 - No items were marked DONE merely by reorganizing this file. Add dated completion evidence here or in the corresponding row as work closes.
+
+
+## Implementation evidence — 2026-10-21 (#codex)
+
+- REL-01: retained editor baseline, explicit reload, draft-preserving error handling; six focused local tests passed with mocked persistence. Snowflake tests pending.
+- REL-03: writes/snapshots now use one explicit session; rollback routing tested locally, database behavior unverified.
+- REL-04: edit-save refresh implemented; create flow remains unchanged.
+- PLAT-01: reproducible single-file generator added; actual deployment/package troubleshooting remains open.
+- [Claude verification handoff](concurrency-handoff.md) · [Engineering decision history](decisions.md).

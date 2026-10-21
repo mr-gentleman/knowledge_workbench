@@ -95,3 +95,9 @@ Origin is not ownership. Keep stable IDs and add completion evidence.
 Read the current file before editing shared work; preserve concurrent changes and
 resolve version conflicts against the latest content. Keep design rationale in
 docs/app-design-notes.md and import constraints in docs/open-items.md.
+
+
+Record meaningful architecture/code decisions in docs/decisions.md with date, origin,
+context, rationale, alternatives, and consequences. Link tasks and commits when known.
+Keep historical entries; supersede them explicitly instead of rewriting the past.
+Routine changes need only Git history, not a decision entry.

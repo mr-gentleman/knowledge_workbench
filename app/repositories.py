@@ -8,9 +8,9 @@ class StaleEdit(Exception):
 
 
 def _snapshot(record_type: str, table: str, key: str, record_id: int,
-              action: str, actor: str, note: str | None):
+              action: str, actor: str, note: str | None, execute):
     # Snapshot = the committed row itself, so history can't drift from current state.
-    query(
+    execute(
         f"""INSERT INTO {SCHEMA}.revision
               (record_type, record_id, revision_no, action, snapshot, actor, change_note)
             SELECT ?, {key}::VARCHAR, revision_no, ?, OBJECT_CONSTRUCT(*), ?, ?
@@ -23,7 +23,11 @@ def _in_txn(fn):
     s = session()
     s.sql("BEGIN").collect()
     try:
-        out = fn()
+        # Bind every statement, including the snapshot, to this transaction.
+        def execute(sql, params=None):
+            return s.sql(sql, params=params or []).collect()
+
+        out = fn(execute)
         s.sql("COMMIT").collect()
         return out
     except Exception:
@@ -64,9 +68,9 @@ def find_by_exact_name(normalized_name: str):
 
 
 def insert_candidate(fields: dict, actor: str, source: str = "sme") -> int:
-    def run():
-        cid = query(f"SELECT {SCHEMA}.seq_candidate_id.NEXTVAL")[0][0]
-        query(
+    def run(execute):
+        cid = execute(f"SELECT {SCHEMA}.seq_candidate_id.NEXTVAL")[0][0]
+        execute(
             f"""INSERT INTO {SCHEMA}.metric_candidate
                   (candidate_id, full_name, description, disambig, department, category,
                    source, original_author, created_by, updated_by)
@@ -75,7 +79,7 @@ def insert_candidate(fields: dict, actor: str, source: str = "sme") -> int:
              fields.get("disambig"), fields.get("department"), fields.get("category"),
              source, fields.get("original_author") or actor, actor, actor],
         )
-        _snapshot("metric_candidate", "metric_candidate", "candidate_id", cid, "create", actor, None)
+        _snapshot("metric_candidate", "metric_candidate", "candidate_id", cid, "create", actor, None, execute)
         return cid
 
     return _in_txn(run)
@@ -83,8 +87,8 @@ def insert_candidate(fields: dict, actor: str, source: str = "sme") -> int:
 
 def update_candidate(candidate_id: int, expected_revision: int, fields: dict,
                      actor: str, note: str | None = None) -> int:
-    def run():
-        res = query(
+    def run(execute):
+        res = execute(
             f"""UPDATE {SCHEMA}.metric_candidate
                 SET full_name = ?, description = ?, disambig = ?, department = ?, category = ?,
                     revision_no = revision_no + 1,
@@ -96,7 +100,7 @@ def update_candidate(candidate_id: int, expected_revision: int, fields: dict,
         )
         if res[0][0] == 0:
             raise StaleEdit(candidate_id)
-        _snapshot("metric_candidate", "metric_candidate", "candidate_id", candidate_id, "edit", actor, note)
+        _snapshot("metric_candidate", "metric_candidate", "candidate_id", candidate_id, "edit", actor, note, execute)
         return expected_revision + 1
 
     return _in_txn(run)
@@ -110,3 +114,4 @@ def history(record_type: str, record_id: int):
             ORDER BY revision_no DESC""",
         [record_type, str(record_id)],
     )
+
