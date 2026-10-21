@@ -1,0 +1,276 @@
+"""Knowledge Workbench — slice 1 (single-file build of app/ + streamlit_app.py).
+Generated from the multi-file source in the repo; edit the source, not this."""
+import json
+import os
+from dataclasses import dataclass, field
+
+import streamlit as st
+
+# ══ db ═════════════════════════════════════════════════════════════════════
+SCHEMA = "AI_PLATFORM.WORKBENCH"
+
+
+def session():
+    # Container runtime + local dev both use st.connection (local: ~/.snowflake/connections.toml).
+    conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
+    return conn.session()
+
+
+def viewer() -> str:
+    """Who is acting. Never taken from a form field, never CURRENT_USER() —
+    in the container runtime that can be the app's service user, not the person."""
+    user = getattr(st, "user", None)
+    for attr in ("user_name", "email"):
+        name = getattr(user, attr, None) if user else None
+        if name:
+            return name
+    st.error("Can't determine who you are — saves are disabled.")
+    st.stop()
+
+
+def query(sql: str, params: list | None = None):
+    return session().sql(sql, params=params or []).collect()
+
+
+# ══ repositories ═══════════════════════════════════════════════════════════
+class StaleEdit(Exception):
+    """Someone saved a newer revision since this form was loaded."""
+
+
+def _snapshot(record_type: str, table: str, key: str, record_id: int,
+              action: str, actor: str, note: str | None):
+    # Snapshot = the committed row itself, so history can't drift from current state.
+    query(
+        f"""INSERT INTO {SCHEMA}.revision
+              (record_type, record_id, revision_no, action, snapshot, actor, change_note)
+            SELECT ?, {key}::VARCHAR, revision_no, ?, OBJECT_CONSTRUCT(*), ?, ?
+            FROM {SCHEMA}.{table} WHERE {key} = ?""",
+        [record_type, action, actor, note, record_id],
+    )
+
+
+def _in_txn(fn):
+    s = session()
+    s.sql("BEGIN").collect()
+    try:
+        out = fn()
+        s.sql("COMMIT").collect()
+        return out
+    except Exception:
+        s.sql("ROLLBACK").collect()
+        raise
+
+
+# ── candidates ──────────────────────────────────────────────────────────────
+
+def list_candidates(search: str = ""):
+    return query(
+        f"""SELECT candidate_id, full_name, category, status,
+                   promoted_metric_id, original_author, updated_by, updated_at
+            FROM {SCHEMA}.metric_candidate
+            WHERE ? = '' OR full_name ILIKE '%' || ? || '%'
+            ORDER BY updated_at DESC""",
+        [search, search],
+    )
+
+
+def get_candidate(candidate_id: int):
+    rows = query(f"SELECT * FROM {SCHEMA}.metric_candidate WHERE candidate_id = ?", [candidate_id])
+    return rows[0].as_dict() if rows else None
+
+
+def find_by_exact_name(normalized_name: str):
+    """Collisions across candidates and canon. Normalization rule lives in services."""
+    return query(
+        f"""SELECT 'candidate' AS kind, candidate_id AS id, full_name
+            FROM {SCHEMA}.metric_candidate
+            WHERE LOWER(TRIM(full_name)) = ? AND status = 'open'
+            UNION ALL
+            SELECT 'metric', metric_id, full_name
+            FROM {SCHEMA}.metric_core
+            WHERE LOWER(TRIM(full_name)) = ? AND status = 'active'""",
+        [normalized_name, normalized_name],
+    )
+
+
+def insert_candidate(fields: dict, actor: str, source: str = "sme") -> int:
+    def run():
+        cid = query(f"SELECT {SCHEMA}.seq_candidate_id.NEXTVAL")[0][0]
+        query(
+            f"""INSERT INTO {SCHEMA}.metric_candidate
+                  (candidate_id, full_name, description, disambig, department, category,
+                   source, original_author, created_by, updated_by)
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?""",
+            [cid, fields["full_name"], fields.get("description"),
+             fields.get("disambig"), fields.get("department"), fields.get("category"),
+             source, fields.get("original_author") or actor, actor, actor],
+        )
+        _snapshot("metric_candidate", "metric_candidate", "candidate_id", cid, "create", actor, None)
+        return cid
+
+    return _in_txn(run)
+
+
+def update_candidate(candidate_id: int, expected_revision: int, fields: dict,
+                     actor: str, note: str | None = None) -> int:
+    def run():
+        res = query(
+            f"""UPDATE {SCHEMA}.metric_candidate
+                SET full_name = ?, description = ?, disambig = ?, department = ?, category = ?,
+                    revision_no = revision_no + 1,
+                    updated_by = ?, updated_at = CURRENT_TIMESTAMP()
+                WHERE candidate_id = ? AND revision_no = ?""",
+            [fields["full_name"], fields.get("description"),
+             fields.get("disambig"), fields.get("department"), fields.get("category"),
+             actor, candidate_id, expected_revision],
+        )
+        if res[0][0] == 0:
+            raise StaleEdit(candidate_id)
+        _snapshot("metric_candidate", "metric_candidate", "candidate_id", candidate_id, "edit", actor, note)
+        return expected_revision + 1
+
+    return _in_txn(run)
+
+
+def history(record_type: str, record_id: int):
+    return query(
+        f"""SELECT revision_no, action, actor, acted_at, change_note, snapshot
+            FROM {SCHEMA}.revision
+            WHERE record_type = ? AND record_id = ?
+            ORDER BY revision_no DESC""",
+        [record_type, str(record_id)],
+    )
+
+
+# ══ services ═══════════════════════════════════════════════════════════════
+EDITABLE = ("full_name", "description", "disambig", "department", "category")
+
+
+@dataclass
+class Outcome:
+    ok: bool
+    message: str
+    record_id: int | None = None
+    revision_no: int | None = None
+    warnings: list[str] = field(default_factory=list)
+
+
+def normalize_name(name: str) -> str:
+    # V1 rule: case- and edge-whitespace-insensitive. Open decision #2 — tighten here only.
+    return (name or "").strip().lower()
+
+
+def _clean(fields: dict) -> dict:
+    out = {k: (v.strip() if isinstance(v, str) else v) for k, v in fields.items()}
+    return out
+
+
+def _collisions(name: str, exclude_candidate: int | None = None) -> list[str]:
+    hits = find_by_exact_name(normalize_name(name))
+    return [
+        f"Possible duplicate — {h['KIND']} #{h['ID']} is also named “{h['FULL_NAME']}”."
+        for h in hits
+        if not (h["KIND"] == "candidate" and h["ID"] == exclude_candidate)
+    ]
+
+
+def save_new_candidate(fields: dict, actor: str) -> Outcome:
+    fields = _clean(fields)
+    if not fields.get("full_name"):
+        return Outcome(False, "A name is required to save.")
+    warnings = _collisions(fields["full_name"])
+    cid = insert_candidate(fields, actor)
+    msg = "Saved." if fields.get("description") else "Saved — add a description to establish this metric."
+    return Outcome(True, msg, cid, 1, warnings)
+
+
+def save_candidate_edit(candidate_id: int, expected_revision: int, fields: dict,
+                        actor: str, note: str | None = None) -> Outcome:
+    fields = _clean(fields)
+    if not fields.get("full_name"):
+        return Outcome(False, "A name is required to save.")
+    current = get_candidate(candidate_id)
+    if current is None:
+        return Outcome(False, f"Candidate #{candidate_id} not found.")
+    if current["REVISION_NO"] != expected_revision:
+        return Outcome(False, "Someone saved a newer version since you opened this. "
+                              "Your edits are still in the form — reload to compare.")
+    before = {k: current[k.upper()] for k in EDITABLE}
+    if all((before[k] or None) == (fields.get(k) or None) for k in EDITABLE):
+        return Outcome(True, "No changes to save.", candidate_id, expected_revision)
+    try:
+        rev = update_candidate(candidate_id, expected_revision, fields, actor, note)
+    except StaleEdit:
+        return Outcome(False, "Someone saved a newer version since you opened this. "
+                              "Your edits are still in the form — reload to compare.")
+    return Outcome(True, "Saved.", candidate_id, rev, _collisions(fields["full_name"], candidate_id))
+
+
+# ══ page ═══════════════════════════════════════════════════════════════════
+st.set_page_config(page_title="Knowledge Workbench", layout="wide")
+
+DEPARTMENTS = ["", "finance", "marketing", "sales", "customer", "product", "bi_meta", "misc"]
+
+
+def _flash(outcome: Outcome):
+    (st.success if outcome.ok else st.error)(outcome.message)
+    for w in outcome.warnings:
+        st.warning(w)
+
+
+def candidate_form(key: str, current: dict | None = None):
+    c = current or {}
+    with st.form(key):
+        full_name = st.text_input("Name *", c.get("FULL_NAME") or "")
+        dept = c.get("DEPARTMENT") or ""
+        department = st.selectbox("Department", DEPARTMENTS, index=DEPARTMENTS.index(dept) if dept in DEPARTMENTS else 0)
+        category = st.text_input("Category", c.get("CATEGORY") or "")
+        description = st.text_area("Description", c.get("DESCRIPTION") or "", height=160)
+        disambig = st.text_area("When to use / how it differs", c.get("DISAMBIG") or "", height=80)
+        note = st.text_input("Change note (optional)") if current else None
+        submitted = st.form_submit_button("Save", type="primary")
+    fields = dict(full_name=full_name, category=category,
+                  description=description, disambig=disambig,
+                  department=department or None)
+    return submitted, fields, note
+
+
+# ── sidebar: search + pick ─────────────────────────────────────────────────
+st.sidebar.title("Knowledge Workbench")
+st.sidebar.caption(f"Signed in as **{viewer()}**")
+search = st.sidebar.text_input("Search metrics")
+rows = list_candidates(search)
+labels = {"➕ New metric": None} | {
+    f"#{r['CANDIDATE_ID']} · {r['FULL_NAME']}": r["CANDIDATE_ID"] for r in rows
+}
+pick = st.sidebar.radio("Candidates", list(labels), label_visibility="collapsed")
+selected = labels[pick]
+
+# ── main ────────────────────────────────────────────────────────────────────
+if selected is None:
+    st.header("New metric")
+    st.caption("Only a name is required. Save early; fill in the rest later.")
+    submitted, fields, _ = candidate_form("new")
+    if submitted:
+        out = save_new_candidate(fields, viewer())
+        _flash(out)
+        if out.ok:
+            st.session_state["just_created"] = out.record_id
+else:
+    cand = get_candidate(selected)
+    st.header(cand["FULL_NAME"])
+    st.caption(
+        f"Candidate #{cand['CANDIDATE_ID']} · rev {cand['REVISION_NO']} · {cand['STATUS']} · "
+        f"author {cand['ORIGINAL_AUTHOR'] or 'unknown'} · last edit {cand['UPDATED_BY']} "
+        f"{cand['UPDATED_AT']:%Y-%m-%d %H:%M}"
+    )
+    tab_edit, tab_hist = st.tabs(["Edit", "History"])
+    with tab_edit:
+        submitted, fields, note = candidate_form(f"edit-{selected}", cand)
+        if submitted:
+            _flash(save_candidate_edit(selected, cand["REVISION_NO"], fields, viewer(), note))
+    with tab_hist:
+        for h in history("metric_candidate", selected):
+            with st.expander(f"rev {h['REVISION_NO']} · {h['ACTION']} · {h['ACTOR']} · "
+                             f"{h['ACTED_AT']:%Y-%m-%d %H:%M}" + (f" — {h['CHANGE_NOTE']}" if h["CHANGE_NOTE"] else "")):
+                st.json(json.loads(h["SNAPSHOT"]))

@@ -1,0 +1,17 @@
+# Deploy with Snowflake CLI:  snow streamlit deploy --replace
+definition_version: 2
+entities:
+  knowledge_workbench:
+    type: streamlit
+    identifier:
+      name: KNOWLEDGE_WORKBENCH
+      database: AI_PLATFORM
+      schema: WORKBENCH
+    title: Knowledge Workbench
+    query_warehouse: BIZ_AI_WH
+    main_file: streamlit_app.py
+    stage: WORKBENCH_APP_STAGE
+    artifacts:
+      - streamlit_app.py
+      - environment.yml
+      - app/
