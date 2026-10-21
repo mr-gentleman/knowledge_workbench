@@ -1,4 +1,6 @@
 # Deploy with Snowflake CLI:  snow streamlit deploy --replace
+# NOTE: the live Snowsight-created app is AI_PLATFORM.WORKBENCH.VO0TBC_5CROCK7E6.
+# A CLI deploy of this file creates a separate app named KNOWLEDGE_WORKBENCH.
 definition_version: 2
 entities:
   knowledge_workbench:
@@ -8,10 +10,11 @@ entities:
       database: AI_PLATFORM
       schema: WORKBENCH
     title: Knowledge Workbench
+    runtime_name: SYSTEM$ST_CONTAINER_RUNTIME_PY3_11
+    compute_pool: SYSTEM_COMPUTE_POOL_CPU
     query_warehouse: BIZ_AI_WH
     main_file: streamlit_app.py
     stage: WORKBENCH_APP_STAGE
     artifacts:
       - streamlit_app.py
-      - environment.yml
       - app/

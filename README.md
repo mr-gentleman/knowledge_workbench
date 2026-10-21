@@ -9,6 +9,7 @@ Plans (in the oracle_bi_agent workspace): `notes/streamlit-app-master-plan.md`,
 ## Layout
 
     streamlit_app.py   entry page
+    streamlit_app_single.py  generated one-file build (deploy fallback) — edit app/, not this
     app/db.py          session + trusted viewer identity
     app/repositories.py SQL + transactions, no business rules
     app/services.py    workflows + invariants (save, no-op, stale-edit, name collision)
