@@ -35,6 +35,39 @@ These are separate from history presentation improvements. An overwritten edit i
 | REL-04 | TODO | P2 / V1 | Refresh the header, revision, sidebar label, and editor baseline after successful save without losing feedback. Failed saves retain draft inputs. | #existing — code observation |
 | REL-05 | TODO | P1 / V1 | Add focused regression coverage for REL-01/02/03 and the later validation/promotion invariants. Record deployed smoke-test evidence as well as automated checks. | #existing #codex — tests directory currently only a placeholder |
 
+### REL-01 implementation handoff — optimistic concurrency
+
+Suggested by **#codex**, 2026-10-21; requested by **#chris**. Status remains TODO until implemented and verified.
+
+**Problem:** the page currently calls `get_candidate(selected)` on every rerun, including form submission, then passes that freshly fetched `REVISION_NO` to `save_candidate_edit`. This does not reliably represent the version the person originally edited.
+
+**Implementation steps:**
+
+1. In `streamlit_app.py`, store an editor baseline (record snapshot plus revision) in per-user `st.session_state`, keyed by record type and ID. Initialize it when opening the record; do not replace it merely because the script reran or Save was clicked.
+2. Keep draft widget values separate from that baseline, with explicit record-specific widget keys. Render and submit against the retained baseline. Preserve the draft on conflicts and other failed saves.
+3. Pass the baseline revision as `expected_revision` to `app/services.py:save_candidate_edit`. A preliminary read may provide friendly feedback, but the repository's conditional UPDATE is the authoritative guard:
+   ```sql
+   -- Schematic: retain the existing parameterized field assignments.
+   UPDATE metric_candidate
+   SET ..., revision_no = revision_no + 1
+   WHERE candidate_id = ?
+     AND revision_no = ?; -- baseline revision originally opened
+   ```
+4. In `app/repositories.py:update_candidate`, retain the affected-row check and transactional snapshot write. Zero updated rows means a conflict; do not append history or silently retry with a newer revision. Verify all transaction statements use the same Snowflake session. Handle any database concurrent-update error without losing the draft.
+5. On conflict, show: "This metric changed while you were editing. Review the latest version before saving." Fetch latest values separately for comparison; do not silently replace the baseline or draft. Show the saved version beside the user's draft. V1 needs manual reconciliation, not automatic merging or a force-overwrite button.
+6. Provide explicit actions: **Reload latest (discard my draft)**, clearly labeled; or **Review and reconcile**, preserving the draft while the user chooses the intended values. Only after explicit acceptance of the reviewed version should it become the new baseline. The next save must still use its revision, so another intervening save is detected.
+7. After a successful content-changing save, advance the baseline to the exact committed snapshot/revision, refresh the UI, and preserve success feedback. Do not pair an old draft with an unrelated newer revision from a later read. A no-op save should not invent a revision. On record switching, keep state scoped to each record so one metric's draft/baseline cannot leak into another.
+8. Apply the fix in the modular source and regenerate/update `streamlit_app_single.py` through the agreed build path (PLAT-01). The deployed single-file app must receive the fix too.
+
+**Acceptance checks (REL-05):**
+
+- A and B open revision 5. B saves revision 6. A submits: conflict shown, A's draft retained, database still contains B's values, and no revision 7/history row is created by A's rejected save.
+- Repeat with both saves issued at nearly the same time, using separate sessions. Verify in Snowflake that at most one update based on revision 5 succeeds, the other receives a handled conflict/error, and successful content and history remain consistent.
+- After A reviews/reconciles against revision 6, A can save revision 7. If someone saves revision 7 first, A receives another conflict instead of overwriting it.
+- Ordinary reruns do not advance the baseline or erase draft inputs. Switching records does not mix their editor state.
+- Explicit reload replaces the draft with the latest saved version; successful save refreshes the baseline; unchanged Save creates no revision.
+- Verify the published app as well as source-level tests. Record evidence before marking REL-01 DONE.
+
 ## Search / discovery of existing knowledge
 
 | ID | Status | Priority / scope | Task and acceptance check | Origin / evidence |
