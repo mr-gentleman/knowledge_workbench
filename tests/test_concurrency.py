@@ -78,6 +78,58 @@ class EditorTests(unittest.TestCase):
         self.assertEqual(self.app.text_area[0].value, 'Retained')
 
 
+class CreateTests(unittest.TestCase):
+    """REL-02: a successful create opens the new record and drops the create form."""
+
+    def setUp(self):
+        self.rows, self.inserts = [], []
+        def insert(fields, actor):
+            cid = len(self.rows) + 1
+            self.rows.append(dict(CANDIDATE_ID=cid, FULL_NAME=fields['full_name'],
+                                  DESCRIPTION=fields.get('description'), DISAMBIG=None,
+                                  CATEGORY=None, DEPARTMENT=None, REVISION_NO=1, STATUS='open',
+                                  ORIGINAL_AUTHOR=actor, UPDATED_BY=actor,
+                                  UPDATED_AT=datetime(2026, 10, 22)))
+            self.inserts.append(cid)
+            return cid
+        by_id = lambda cid: next((copy.deepcopy(r) for r in self.rows if r['CANDIDATE_ID'] == cid), None)
+        patches = [patch('app.db.viewer', return_value='tester'),
+                   patch.object(repo, 'list_candidates', side_effect=lambda search: [
+                       copy.deepcopy(r) for r in self.rows
+                       if search.lower() in r['FULL_NAME'].lower()]),
+                   patch.object(repo, 'get_candidate', side_effect=by_id),
+                   patch.object(repo, 'history', return_value=[]),
+                   patch.object(repo, 'find_by_exact_name', return_value=[]),
+                   patch.object(repo, 'insert_candidate', side_effect=insert)]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        self.app = AppTest.from_file('../streamlit_app.py').run()
+
+    def test_create_opens_new_record_once(self):
+        self.app.text_input(key='new:full_name').set_value('Fresh metric')
+        next(b for b in self.app.button if b.label == 'Save').click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.inserts, [1])
+        self.assertEqual(self.app.sidebar.radio[0].value, 1)  # listed and selected
+        self.assertEqual(self.app.header[0].value, 'Fresh metric')
+        self.assertTrue(self.app.success)  # "Saved" feedback survives the rerun
+        self.assertNotIn('new:full_name', [w.key for w in self.app.text_input])
+        self.app.run()  # a later rerun must not create anything again
+        self.assertEqual(self.inserts, [1])
+
+    def test_create_hidden_by_search_does_not_jump_later(self):
+        self.app.sidebar.text_input[0].set_value('zzz').run()
+        self.app.text_input(key='new:full_name').set_value('Fresh metric')
+        next(b for b in self.app.button if b.label == 'Save').click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.inserts, [1])
+        self.assertIn('Saved as #1', self.app.sidebar.info[0].value)
+        self.assertNotIn('just_created', self.app.session_state)
+        self.app.sidebar.text_input[0].set_value('').run()  # clear the search
+        self.assertIsNone(self.app.sidebar.radio[0].value)  # no surprise jump
+
+
 class TransactionTests(unittest.TestCase):
     def test_snapshot_failure_rolls_back_on_same_session(self):
         s = Mock()
