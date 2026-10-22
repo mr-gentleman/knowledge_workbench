@@ -141,3 +141,36 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   option 1 re-creates them under the canon metric via the pre-fill.
 - Related: LIFE-01, LIFE-02, LIFE-03, LIFE-05, FIND-03.
 
+## DEC-007 — Lock all database access; clean up failed transactions; one canon = one definition
+
+- Date: 2026-10-22. Origin: GPT-6 Astra deep review ([reviews/2026-10-22-astra.md](reviews/2026-10-22-astra.md)),
+  triaged by #claude, decided by #chris. **Supersedes DEC-004's unlocked-read rule and its
+  "reader-writer lock" upgrade path; supersedes DEC-006's Variant wording.**
+- Context: Astra showed (a) a failed or interrupted transaction (incl. Streamlit's StopException,
+  which escapes `except Exception`) can leave BEGIN open on the shared connection, so the next
+  viewer's COMMIT commits the abandoned change without its snapshot; (b) unlocked reads can show
+  uncommitted revisions that later roll back (and the error copy says "check History"); (c) the
+  Python driver allows sharing a connection but not safe concurrent use of its internal state;
+  a reader-writer lock doesn't fix that.
+- Decision:
+  - **Every database operation takes `db_lock`**, held only during execute/fetch — never while
+    rendering. Cap the list query (LIMIT) and load history on demand, so browsing doesn't hold it.
+  - **`_in_txn` cleanup:** BEGIN inside the try; handle `BaseException` and re-raise; if the
+    outcome is uncertain (rollback failed / interrupted), reset or quarantine the connection
+    before releasing the lock; preserve both errors.
+  - **Attribution/ops log:** keep owner's rights (service user) for writes; stamp the human via
+    `st.user` in rows, a QUERY_TAG on every statement (op_id, viewer, record), and an op-log row
+    written OUTSIDE the transaction (committed / conflict / rolled_back / rollback_failed /
+    connection_reset / interrupted + lock wait ms). Caller's rights rejected for writes (SMEs
+    would need direct table writes, bypassing app rules); revisit for reads after preview.
+  - **Upgrade path:** if measured lock waits annoy → a small connection pool, leased exclusively
+    per operation/transaction (not per tab). SQL validation gets its own connection from day one.
+  - **Variants retired (Chris):** same number at a different grain/aggregation/source = a PI;
+    a different calculation for a different purpose = **two separate canonical metrics** with
+    distinct names and their own disambiguation. No `variant_of` links; confusability is found
+    from eval/retrieval data later. One canon = one definition, so its PIs are interchangeable.
+- Not decided here (later gates, see review §3/§5): enforced name registry before promotion
+  (Snowflake UNIQUE isn't enforced), atomic idempotent promotion, coherent serving of definition +
+  PIs, revision-bound validation, restore drills.
+- Related: REL-08..REL-12, PLAT-04, PLAT-05, HIST-06, REL-07.
+

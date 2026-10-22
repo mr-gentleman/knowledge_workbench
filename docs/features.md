@@ -15,6 +15,24 @@ Standing engineering philosophy and coding instructions: [AGENTS.md](../AGENTS.m
 - Evidence labels below distinguish **code observation**, **suspected defect**, **documented verification**, and **planned feature**.
 - This file is the current task/status source of truth. Design rationale stays in [app-design-notes.md](app-design-notes.md); import constraints stay in [open-items.md](open-items.md). Their older next-step lists are historical. If moved to an issue board later, link the issues here and explicitly choose one status source.
 
+## Plan of record — 2026-10-22 (pre-SME hardening, then V1)
+
+**Hold SME onboarding** until Step 1–2 are done (Astra review, DEC-007).
+
+1. **Hardening branch:** REL-08 txn cleanup → REL-09 lock all access → PLAT-05 LIMIT + history on demand →
+   PLAT-04 query tags + op log (with lock-wait ms) → REL-10 create reset + token → HIST-06 KEEP_NULL +
+   schema version → REL-11, REL-12, REL-07 → tests. One branch; independent review.
+2. **Astra re-reviews that diff**; CoCo deploys and runs live checks (two-window conflict, duplicate
+   retry, no-op save, an op-log row per outcome).
+3. **In parallel:** PLAT-06 backups + restore drill; idle auto-shutdown on the app.
+4. **V1 phases:** (1) core workspace — PIs on the metric screen, SQL editor, search (UX-01/02, FIND-01/02);
+   (2) lifecycle — reject (clears ZZ_COCO_TEST rows), validation on its own connection bound to the exact
+   revision, promotion with name normalization + registry (DEC-006), restore (HIST-04); (3) one-time import;
+   (4) serving — publish last-passing definition + PIs together, test Oracle, shadow compare; (5) cutover,
+   retire Sheets. Astra deep-reviews at the end of phases 2, 4 and 5.
+5. **Process:** independent review required for persistence, identity, security and serving changes only;
+   enforce merges with branch protection + a required test check wherever the repo settles (GitHub or GitLab).
+
 ## Next sprint / six-step delivery plan
 
 Product priorities from **#chris**; sequencing and refinements by **#codex**, recorded 2026-10-21. This replaces the earlier five-step ordering. These steps organize the existing task IDs; they are not a second status tracker or a claim that the work is complete.
@@ -62,6 +80,11 @@ These are separate from history presentation improvements. An overwritten edit i
 | REL-05 | TODO | P1 / V1 | Add focused regression coverage for REL-01/02/03 and the later validation/promotion invariants. Record deployed smoke-test evidence as well as automated checks. | #existing #codex — six concurrency/UI/transaction-routing tests now pass locally; create protection and future workflow tests remain open |
 | REL-06 | VERIFY | P1 / V1 | Serialize transactions and editable-baseline reads on the shared app connection (DEC-004). All viewers share one Snowflake session, so without this another viewer's statements can join an open transaction, and an editor can capture an uncommitted revision that later rolls back. Acceptance: two published-app sessions saving within the same second both land intact with one snapshot each; opening the editor during a save waits rather than reading uncommitted state. | #claude #codex — shared session observed 2026-10-21 (two windows, one SESSION_ID); lock + 2 tests written, not yet run |
 | REL-07 | TODO | P2 / V1 | Refresh the editable baseline on reopening a record. Editor state persists per record for the browser session, so: open #1, leave, someone else saves #1, return → stale content and revision shown (History shows newer) and the next save fails as a conflict with no visible reason. Refetch on arrival when no submitted draft exists; keep the baseline fixed while editing. | #claude — code observation on cece660 |
+| REL-08 | TODO | P1 / V1 (pre-SME) | Failed-transaction cleanup in `_in_txn`: BEGIN inside try; handle BaseException (Streamlit StopException) and re-raise; on uncertain outcome reset/quarantine the connection before releasing the lock; keep both errors. Test: snapshot fails + rollback fails → next save does not commit the abandoned change. | #astra #claude — Astra review 2026-10-22 (reviews/2026-10-22-astra.md), DEC-007 |
+| REL-09 | TODO | P1 / V1 (pre-SME) | Every DB operation under `db_lock`, held only during execute/fetch. Test: no `query()` path runs without the lock. | #astra #claude — Astra review 2026-10-22 (reviews/2026-10-22-astra.md), DEC-007 |
+| REL-10 | TODO | P1 / V1 (pre-SME) | Duplicate create beyond double-click: with search hiding the new record, the filled create form stays and a normal second Save inserts again (Astra reproduced IDs [1,2]). Reset the create form after any successful create; add a request token persisted with the create so retries return the first result. | #astra #claude — Astra review 2026-10-22 (reviews/2026-10-22-astra.md), DEC-007 |
+| REL-11 | TODO | P2 / V1 (pre-SME) | Duplicate-name warning lookup runs after commit (`services.py`); if it fails, a successful save looks failed. Make advisory checks unable to affect save outcome. | #astra #claude — Astra review 2026-10-22 (reviews/2026-10-22-astra.md), DEC-007 |
+| REL-12 | TODO | P2 / V1 (pre-SME) | Draft keeps the change note; UI states plainly that unsubmitted edits are not saved on navigation. | #astra #claude — Astra review 2026-10-22 (reviews/2026-10-22-astra.md), DEC-007 |
 
 ### REL-01 implementation handoff — optimistic concurrency
 
@@ -147,6 +170,7 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | HIST-03 | TODO | P3 / Next | Combine metric and PI events into one timeline while preserving each record's revision identity. | #existing — planned feature |
 | HIST-04 | TODO | P2 / V1 | Document and test restoring an earlier revision as a new audited change; no historical snapshot mutation. Fancy restore UI is not required for V1. | #existing — planned procedure |
 | HIST-05 | VERIFY | P1 / V1 | Confirm trusted viewer attribution in the published app. Use st.user rather than a form value or service-user identity. | #existing — preview identity verification documented; published check outstanding |
+| HIST-06 | TODO | P1 / V1 (pre-SME) | Snapshots use `OBJECT_CONSTRUCT_KEEP_NULL(*)` (plain OBJECT_CONSTRUCT drops NULL fields, so a cleared value vanishes) + a snapshot schema version; define how older snapshots are read. | #astra #claude — Astra review 2026-10-22 (reviews/2026-10-22-astra.md), DEC-007 |
 
 ## Serving / migration to the Oracle
 
@@ -164,8 +188,8 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | PLAT-01 | VERIFY | P1 / V1 | Establish a reproducible source → deployed app path. Single-file header says generated, but no generator is checked in; snowflake.yml targets the multifile app. Choose/document the deployment path, add generation if keeping the bundle, and prevent source/bundle drift. Diagnose package inclusion before concluding multiple files are unsupported. | #codex — repository observation; runtime cause not established; #coco 2026-10-22 — cause established: `app/` was missing from the Workspace manifest. Resolved by DEC-005: deploy the multi-file app from the repo with the snow CLI; this branch retires the single-file bundle. Multi-file deploy of 729bb7d verified live. Acceptance: merge this branch, then one more deploy from main still loads and saves. #coco 2026-10-22 — acceptance met: merged, deployed f597ce4 from main, published app loaded and created #3. |
 | PLAT-02 | TODO | P2 / V1 | Complete Git-backed deployment (existing plan: GitLab-backed workspace; CI later). Define how this GitHub collaboration repo stays aligned with the actual deployment source. Verify published version, not only workspace preview. | #existing #codex — planned feature |
 | PLAT-03 | VERIFY | P1 / V1 | Confirm deployed owner-role isolation from DICTIONARY, revoke UPDATE on revision, and confirm the intended SYSADMIN role linkage. Review documented broad CoCo write grants before SME rollout. | #existing — isolation documented; remaining grants/checks need current verification |
-| PLAT-04 | TODO | P3 / Next | Add operational logging: operation ID, actor, outcome, duration, query ID. Include `db_lock` wait time so DEC-004's latency cost is measured, not estimated. Today only failed edit saves are logged (`logging.exception`). | #existing — planned feature |
-| PLAT-05 | TODO | P3 / Next | Cut per-click query load. Every interaction reruns the page: `list_candidates` (no `LIMIT`), `get_candidate`, and the full revision history with JSON snapshots, even when the History tab isn't opened. Smallest fix: `LIMIT` the sidebar list; load history only when asked for (toggle/button). Revisit when record counts grow or clicks feel slow. | #claude — code observation, 2026-10-21 review; no latency measured |
+| PLAT-04 | TODO | P1 / V1 (pre-SME, per DEC-007: QUERY_TAG + op log outside txn) | Add operational logging: operation ID, actor, outcome, duration, query ID. Include `db_lock` wait time so DEC-004's latency cost is measured, not estimated. Today only failed edit saves are logged (`logging.exception`). | #existing — planned feature |
+| PLAT-05 | TODO | P1 / V1 (pre-SME, per DEC-007: LIMIT + history on demand so reads don't hold the lock) | Cut per-click query load. Every interaction reruns the page: `list_candidates` (no `LIMIT`), `get_candidate`, and the full revision history with JSON snapshots, even when the History tab isn't opened. Smallest fix: `LIMIT` the sidebar list; load history only when asked for (toggle/button). Revisit when record counts grow or clicks feel slow. | #claude — code observation, 2026-10-21 review; no latency measured |
 | PLAT-06 | TODO | P1 / V1 | Data backup and tested recovery for `AI_PLATFORM.WORKBENCH`. Today `DATA_RETENTION_TIME_IN_DAYS` = 1 (default), so a dropped table, bad bulk import, or `CREATE OR REPLACE TABLE` is recoverable (Time Travel / `UNDROP`) for only 24 h; after that only Snowflake-support Fail-safe. Smallest fix: (1) raise retention on the schema (e.g. 30 days, if the account edition allows) — `ALTER SCHEMA ... SET DATA_RETENTION_TIME_IN_DAYS = 30`; (2) a scheduled zero-copy `CLONE` of the schema to a dated backup schema, keeping a few, before imports and on a weekly cadence; (3) write and exercise the restore runbook once (clone back a table, verify row counts + latest revision). The `revision` table's full snapshots are history, not a backup — same schema, same blast radius. Owner-rights and grants: backups must not give `WORKBENCH_APP` write access outside WORKBENCH. Master plan §9: a tested recovery procedure is V1. | #claude #chris — retention verified 1 day via SHOW PARAMETERS, 2026-10-21 |
 
 ## Current baseline / completion evidence
