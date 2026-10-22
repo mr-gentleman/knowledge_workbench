@@ -174,3 +174,63 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   PIs, revision-bound validation, restore drills.
 - Related: REL-08..REL-12, PLAT-04, PLAT-05, HIST-06, REL-07.
 
+## DEC-008 — Streamlit MVP with frontend-independent application logic
+
+- Date: 2026-10-22. Origin: #chris, summarized by #codex.
+- Status: direction agreed with #chris in conversation; documentation proposed for merge.
+- Context: the Workbench is a collaborative authoring and adjudication app, not only a
+  reporting surface. Related-record editing, SQL inspection, navigation, retained drafts,
+  and conflict handling may eventually justify React. Preserve the MVP investment without
+  building speculative infrastructure or delaying the pre-SME hardening plan.
+- Decision:
+  - **V1 stays Streamlit.** Prove a representative metric workspace: inspect identity and
+    PIs, edit related knowledge, validate/review, and save safely under concurrent edits.
+    Revisit React if actual workflows repeatedly fight reruns, navigation, or editing state.
+    React is a likely future option, not a committed rewrite or a V1 release dependency.
+  - **Keep application logic frontend-independent.** Pages own widgets, navigation, feedback,
+    and per-user drafts/baselines. Ordinary Python services own validation, authorization
+    decisions, workflow transitions, and save orchestration. Repositories own parameterized
+    SQL, conditional updates, transactions, and history persistence. Keep one authoritative
+    implementation of each business rule; no SQL or policy duplicated in UI handlers.
+  - **Make operation boundaries explicit.** Pass record IDs, intended changes, expected
+    revisions, and verified actor context; return committed IDs/revisions and recognizable
+    outcomes (including conflict, validation failure, and uncertain save). Services must not
+    depend on Streamlit widgets, reruns, or session state. Isolate framework-specific identity
+    and connection acquisition at the adapter boundary; evolve existing modules only when
+    touched for a concrete need, rather than starting a wholesale refactor.
+  - **Identity is trusted context, not form data.** Today obtain the actor from verified
+    `st.user`; a future API must derive it from its authenticated request/session, never
+    trust a browser-supplied username. Enforce applicable permissions in application
+    operations, not just button visibility. Preserve DEC-007's owner-rights writes, human
+    attribution, query tags, and operation logging; shared service credentials alone do
+    not provide individual attribution.
+  - **No API or second frontend solely for portability.** Streamlit can call Python services
+    directly now. A future authenticated Python API can expose those same operations to
+    React. Do not add generic interfaces, pass-through wrappers, a custom auth system, or a
+    synchronization framework for hypothetical clients.
+  - **Temporary coexistence is an option, not current scope.** Before enabling two writers,
+    prove compatible permissions, revision checks, retry/idempotency behavior, atomic
+    record/history writes, and audit semantics across both. Sharing code is insufficient.
+    Process-local locks protect the shared connection within their process; they do not
+    coordinate independent app instances. Follow DEC-007's exclusive connection-leasing
+    direction when needed and verify cross-instance database correctness before rollout.
+  - **Frontend and hosting are separate decisions.** Current Streamlit-in-Snowflake container
+    runtime remains the MVP target. A custom React/API deployment on Snowpark Container
+    Services is a candidate, not already selected or equivalent to the current deployment.
+    Compare it with company hosting on authenticated identity, scoped write permissions,
+    attributable operations, inspectable configuration/code/logs, deployment and recovery
+    control, and maintenance ownership.
+- Hosting rationale: #chris reports that the existing company React platform uses a shared
+  read-only Snowflake service account for freehand SQL without individual attribution and has
+  limited configuration transparency. These are reported constraints, not an audit performed
+  here. Do not assume that platform fits Workbench writes merely because it hosts React.
+  A shared account can be appropriate with application authorization and auditing; adopting
+  custom hosting also means owning its operational maintenance.
+- Alternatives: rewrite in React now (premature before proving workflows); couple rules to
+  Streamlit (costly migration and duplicated rules later); build an API and two UIs now
+  (unnecessary V1 complexity); automatically adopt company hosting (controls unverified).
+- Consequences: preserve the existing schema/lifecycle decisions and hardening order. Apply
+  these boundaries incrementally during feature work. React/hosting evaluation is deferred;
+  no runtime code, grants, schema, deployment, or migration is changed by this decision.
+- Related: AGENTS.md architecture boundaries; docs/features.md plan of record; DEC-001,
+  DEC-002, DEC-007; REL-08–12, PLAT-03–05; technical build plan steps 3 and 5.
