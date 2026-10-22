@@ -110,7 +110,8 @@ Tiered plan (cheap → rich):
 
 Requested by #chris; recorded by #codex. Requirements below describe the authoring
 MVP to establish in Streamlit and then compare with a bounded React prototype.
-UX proposals are hypotheses to test, not accepted layout decisions. See DEC-008/009
+DEC-010 settles shared candidate/canon discovery; other layout proposals remain
+hypotheses to test. See DEC-008–011
 and the active task IDs in features.md. No implementation or migration is claimed.
 
 ### Required scope
@@ -144,12 +145,13 @@ and the active task IDs in features.md. No implementation or migration is claime
   and a full machine-adjudication workflow remain deferred; a clearly labeled
   fixture may test how a future AI proposal is presented.
 
-### Proposed information architecture — test before finalizing
+### Information architecture — agreed structure, open presentation
 
-Two primary destinations: **Metrics** and **Fact tables**. Within Metrics, try
-**All / Canon / Candidates** list filters or tabs and a common detail workspace.
-Try Canon as the default for lookup and Candidates as the review queue; compare
-with All as the default. Keep candidate badges unmistakable in mixed results.
+Two primary destinations: **Metrics** and **Fact tables**. Candidates and canon
+share discovery and the metric workspace (DEC-010), with unmistakable badges and
+optional **All / Canon / Candidates** filtering. The default filter and whether
+filters are tabs or controls remain open. Candidates provides a focused review
+queue without requiring a different editor.
 
 Within the metric workspace, show identity/definition and an implementation list;
 select or expand a PI to edit its SQL, context, fact-table link, and validation.
@@ -197,3 +199,57 @@ Continue Streamlit to the usable authoring MVP (milestone A); then time-box the
 React comparison to roughly two days initially. Oracle production cutover
 (milestone B) is not required for the comparison. Switch only if workflow gains
 and a credible authenticated deployment path justify the extra operating cost.
+
+
+## Discovery and stewardship guidance — 2026-10-22
+
+#chris direction, summarized by #codex; DEC-010/011 govern. Status and tasks stay in
+features.md. This supplements the earlier MVP comparison rather than expanding it
+to a full feedback platform.
+
+- **V1 discovery:** combine text search with department and lifecycle filters.
+  Verify a Finance-only search, mixed candidate/canon results, candidate-only review,
+  and explicit discovery of rejected/retired records. Filters should compose and
+  have an obvious clear action. Collapsible department groups are an optional
+  alternative presentation of metadata, not filesystem-style ownership.
+- **Candidate review:** show why attention is needed (unfinished content, failed
+  checks, or pending human review) separately from source (SME, AI, other).
+  Automated intake remains later scope; do not imply a source becomes trusted
+  merely because SQL executes. Promotion still uses the established gates.
+- **Future Needs attention:** candidate review, negative feedback, repeated confusion,
+  usage/impact, recent additions, quality findings, and possible knowledge gaps.
+  Positive feedback helps identify useful examples; it is not proof of correctness.
+  Reuse the metric/fact-table editors and later dimension editors.
+- **Evidence before scores:** where available, link feedback to the originating
+  question/report, SQL/result, affected knowledge revision, timestamp, and complaint.
+  Distinguish an actual missing metric from failed retrieval or ambiguous wording.
+  Prioritization and quality-grade definitions are undecided; no invented scores.
+- **Retirement acceptance:** reject a test candidate and confirm default search
+  excludes it, explicit closed-record search finds it, and actor/reason/history
+  remain available. Test canon/PI retirement in both UI and serving, including
+  exclusion of older passing revisions. Fact-table dependency behavior needs an
+  explicit rule before implementing its retirement flow. No cleanup executed here.
+
+## Authentication learning for the future React spike — 2026-10-22
+
+Documentation finding, not an account-level verification: custom SPCS browser apps
+can use Snowflake ingress sign-in and service-role access; ingress supplies the
+authenticated username to the backend. SPCS also supplies service credentials for
+SQL execution. Thus a custom React app does not inherently require a custom login
+system or manually managed database password.
+
+Keep three concerns separate: permission to open the app, application authorization
+to edit/review/promote, and SQL execution privileges. Preserve the scoped service
+write model plus trusted human attribution (DEC-007/008); caller's rights is a
+separate choice, not a prerequisite for attribution. Trust identity only at the
+authenticated ingress boundary, never from a browser form.
+
+Sources consulted in the discussion:
+[Ingress authentication and identity](https://docs.snowflake.com/en/developer-guide/snowpark-container-services/working-with-services#ingress-authentication);
+[SQL execution credentials](https://docs.snowflake.com/en/developer-guide/snowpark-container-services/spcs-execute-sql).
+
+Expected tradeoff: some additional endpoint/grant setup; the larger ownership cost
+is container/backend deployment and connection lifecycle. This is an engineering
+estimate, not a measured effort claim. The existing comparison script requires
+authorized/denied access, two distinct actors, and an attributable scoped test write
+in the actual deployment before considering authentication proven.
