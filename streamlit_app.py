@@ -10,6 +10,11 @@ from app.db import viewer
 
 st.set_page_config(page_title="Knowledge Workbench", layout="wide")
 
+if st.sidebar.toggle("SQL editor spike", key="spike_editor"):  # throwaway — remove after
+    from app import editor_spike
+    editor_spike.render()
+    st.stop()
+
 DEPARTMENTS = ["", "finance", "marketing", "sales", "customer", "product", "bi_meta", "misc"]
 
 
