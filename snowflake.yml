@@ -1,6 +1,5 @@
-# Deploy with Snowflake CLI:  snow streamlit deploy --replace
-# NOTE: the live Snowsight-created app is AI_PLATFORM.WORKBENCH.VO0TBC_5CROCK7E6.
-# A CLI deploy of this file creates a separate app named KNOWLEDGE_WORKBENCH.
+# Deploy with Snowflake CLI:  snow streamlit deploy --replace -c workbench_deploy
+# (workbench_deploy uses role WORKBENCH_APP, so the app stays owned by that role.)
 definition_version: 2
 entities:
   knowledge_workbench:

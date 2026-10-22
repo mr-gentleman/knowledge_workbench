@@ -37,7 +37,8 @@ Companion docs: `handoff-2026-10-16.md` (state + settled schema decisions), `fea
   (Python 3.11, Streamlit ≥1.50, Snowpark) — enough today. Add `pyproject.toml` + an artifact
   repository when a pip package is needed (e.g. the SQL-editor spike).
 - Deploy target needs the schema set explicitly (was the "unable to deploy" error).
-- A second personal copy exists in `USER$CLENZINI.PUBLIC` (workspace's own app) — safe to drop.
+- The second personal copy in `USER$CLENZINI.PUBLIC` (workspace's own app) was dropped 2026-10-22.
+  The live app was renamed `VO0TBC_5CROCK7E6` → `KNOWLEDGE_WORKBENCH` (owner unchanged).
 - **Next: GitLab repo + Git-backed workspace** so deploys come from git, not hand uploads.
   Later: GitLab CI → `snow streamlit deploy`.
 
