@@ -43,8 +43,8 @@ new dependencies and abstraction layers; remove superseded code.**
   only what ships with the runtime. A new package is a platform change, not a code change.
 - **Streamlit reruns the whole page on every click.** Every query on the page runs
   on every interaction — that's the main latency lever.
-- After editing `app/` or `streamlit_app.py`, run `python scripts/build_single.py`.
-  `streamlit_app_single.py` is generated; never edit it by hand.
+- Deploy from the repo only: `snow streamlit deploy --replace -c workbench_deploy`
+  (Snowflake CLI >= 3.30; `snowflake.yml` lists the artifacts, including `pyproject.toml`).
 - Tests: `python -m unittest discover -s tests -v` (Python 3.11 + `streamlit>=1.50`). They use an
   in-memory fake for `app/repositories.py`, so they cover page and rule logic, not SQL.
 - Schema changes: add a new numbered file in `sql/`; never edit a shipped one.
