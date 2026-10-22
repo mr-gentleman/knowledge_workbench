@@ -195,6 +195,9 @@ from cold start, SQL execution, and lock waiting; record backend calls per actio
 Note implementation effort, framework workarounds, and files/rules touched by the
 follow-up change. A two-day spike samples maintainability; it does not prove it.
 
+Narrowed 2026-10-22 (#chris): compare two lean builds of one slice rather than two
+MVPs; see [plans/comparison-slice.md](plans/comparison-slice.md).
+
 Continue Streamlit to the usable authoring MVP (milestone A); then time-box the
 React comparison to roughly two days initially. Oracle production cutover
 (milestone B) is not required for the comparison. Switch only if workflow gains

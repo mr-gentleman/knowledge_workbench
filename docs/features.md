@@ -62,6 +62,9 @@ Acceptance script and navigation guidance (shared candidate/canon discovery is n
 Existing work remains tracked by UX-01–04, FIND-01–02, SERVE-02, CHECK and LIFE items;
 this adds no second status tracker or immediate React implementation task.
 See DEC-009 for sequencing and scope.
+#chris 2026-10-22: the comparison is narrowed to two lean builds of one slice
+(navigation, search, metric editor + PIs), with the SQL-editor check as step zero:
+[plans/comparison-slice.md](plans/comparison-slice.md).
 
 ## Next sprint / six-step delivery plan
 
