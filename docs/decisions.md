@@ -93,3 +93,22 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   or on the shared connection inside a transaction.
 - Related: REL-03, REL-06, PLAT-04; app/db.py, app/repositories.py, tests/test_concurrency.py.
 
+## DEC-005 — Deploy the multi-file app from the repo; retire the single-file bundle
+
+- Date: 2026-10-22. Origin: #coco, requested by #chris. Supersedes DEC-003.
+- Status: proposed on branch coco/plat-01-retire-single-file; multi-file deploy verified live.
+- Context: the multi-file app failed with `ModuleNotFoundError: app` because the Workspace
+  publish manifest listed only `pyproject.toml`, `streamlit_app.py` and `.streamlit/config.toml`
+  — `app/` was never uploaded. DEC-003's bundle was a workaround, not a platform limit.
+- Decision: `snowflake.yml` is the deploy manifest (artifacts: `pyproject.toml`,
+  `streamlit_app.py`, `app/`); deploy with `snow streamlit deploy --replace -c workbench_deploy`
+  (CLI >= 3.30; 3.7 rejects `runtime_name`/`compute_pool`). The Workspace copy is deleted.
+  Remove `streamlit_app_single.py` and `scripts/build_single.py`.
+- Evidence (2026-10-22): commit 729bb7d deployed to `AI_PLATFORM.WORKBENCH.KNOWLEDGE_WORKBENCH`
+  (container runtime, owner WORKBENCH_APP); live stage holds `app/*`; published app loaded;
+  candidate #2 created (rev 1) and edited (rev 2) with exactly one `edit` revision, actor CLENZINI.
+- Consequences: one source, no bundle drift. The container runtime refuses to start without a
+  dependency file, so `pyproject.toml` must stay in the artifacts (a `--prune` deploy without it
+  took the app down once). No pip packages until an artifact repository is attached.
+- Related: PLAT-01, PLAT-02; snowflake.yml, pyproject.toml.
+
