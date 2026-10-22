@@ -49,6 +49,20 @@ Rationale and implementation guidance:
 [DEC-008](decisions.md#dec-008--streamlit-mvp-with-frontend-independent-application-logic).
 This is architecture guidance, not a claim that portability or a second deployment is implemented.
 
+### Authoring MVP and subsequent React comparison — 2026-10-22
+
+#chris: continue the Streamlit authoring MVP first, including imported existing
+metrics, metric identity plus multiple PIs, a separate fact-table editing workspace,
+and sidebar discovery/search across the two areas. Then compare a bounded React
+implementation using the same representative data and workflows; production
+Oracle cutover is not a prerequisite. Preserve the pre-SME hardening gates.
+
+Acceptance script and explicitly provisional candidate/canon navigation proposals:
+[app-design-notes.md — MVP comparison requirements](app-design-notes.md#mvp-comparison-requirements--2026-10-22).
+Existing work remains tracked by UX-01–04, FIND-01–02, SERVE-02, CHECK and LIFE items;
+this adds no second status tracker or immediate React implementation task.
+See DEC-009 for sequencing and scope.
+
 ## Next sprint / six-step delivery plan
 
 Product priorities from **#chris**; sequencing and refinements by **#codex**, recorded 2026-10-21. This replaces the earlier five-step ordering. These steps organize the existing task IDs; they are not a second status tracker or a claim that the work is complete.
