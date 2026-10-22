@@ -15,5 +15,6 @@ entities:
     main_file: streamlit_app.py
     stage: WORKBENCH_APP_STAGE
     artifacts:
+      - pyproject.toml
       - streamlit_app.py
       - app/

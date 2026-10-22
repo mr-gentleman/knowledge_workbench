@@ -1,0 +1,10 @@
+# Required by the SiS container runtime: the app won't start without a dependency file.
+# No artifact repository is attached, so packages come from the runtime image;
+# keep Streamlit unpinned (a pin needs a package index — see docs/app-design-notes.md).
+[project]
+name = "knowledge-workbench"
+version = "0.1.0"
+requires-python = "~=3.11.0"
+dependencies = [
+    "streamlit[snowflake]",
+]

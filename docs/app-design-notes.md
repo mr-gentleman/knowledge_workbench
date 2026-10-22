@@ -34,8 +34,10 @@ Companion docs: `handoff-2026-10-16.md` (state + settled schema decisions), `fea
 - **Dependencies (container runtime):** read from `pyproject.toml` / `requirements.txt` only —
   `environment.yml` is the warehouse-runtime (conda) format and was ignored, so it's removed.
   Without an attached artifact repository the app gets only what ships with the runtime
-  (Python 3.11, Streamlit ≥1.50, Snowpark) — enough today. Add `pyproject.toml` + an artifact
-  repository when a pip package is needed (e.g. the SQL-editor spike).
+  (Python 3.11, Streamlit ≥1.50, Snowpark) — enough today. But the runtime refuses to start
+  without a dependency file ("pyproject.toml file does not exist"), so a minimal unpinned
+  `pyproject.toml` is required and deployed. Add an artifact repository when a pip package
+  is needed (e.g. the SQL-editor spike).
 - Deploy target needs the schema set explicitly (was the "unable to deploy" error).
 - The second personal copy in `USER$CLENZINI.PUBLIC` (workspace's own app) was dropped 2026-10-22.
   The live app was renamed `VO0TBC_5CROCK7E6` → `KNOWLEDGE_WORKBENCH` (owner unchanged).
