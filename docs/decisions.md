@@ -112,3 +112,32 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   took the app down once). No pip packages until an artifact repository is attached.
 - Related: PLAT-01, PLAT-02; snowflake.yml, pyproject.toml.
 
+## DEC-006 — Metric names: loose candidates, hard identity rules on canon, routed duplicates
+
+- Date: 2026-10-21. Origin: #claude, agreed by #chris in session. Status: accepted; not implemented.
+- Context: today an exact-name match (lower+trim, vs open candidates and active canon) only warns
+  and the save proceeds; no DB uniqueness. Plans left "do unresolved collisions hold promotion?"
+  open (recommended: yes). Oct-16 handoff already settled: duplicate of canon → reject the
+  candidate with `duplicate_of_metric_id` and edit the canon instead.
+- Decision:
+  - **Candidates stay loose:** warnings only; the candidate pile is the inbox.
+  - **Canon names are unique among active canon — a hard rule.** Enforced at promotion and on
+    every canon save that changes the name (rename = identity edit). Per the metric ontology,
+    same noun + contested definition = one metric (Variant); different computation = Sibling,
+    which must carry a distinct name + disambiguation.
+  - **Two kinds of canon check.** Identity rules (non-blank, unique name) → save refused, current
+    canon untouched. Quality checks (SQL runs, etc.) → saved but not served; the Oracle keeps the
+    last passing revision (`served_revision_no`). Either way canon never goes offline.
+  - **Routed duplicate flow** when a draft matches/resembles active canon, showing both
+    definitions: (1) "Same metric — edit that one": opens the canon editor pre-filled with the
+    draft (incl. SQL), before→after view, saved as a normal canon revision; candidate closed as
+    rejected + `duplicate_of_metric_id`. (2) "Different metric": distinct name + disambiguation
+    required. (3) "Not sure": save as candidate; promotion blocked until 1 or 2 is chosen.
+  - No automatic merge of candidate fields onto canon (silent canon change by someone who may
+    be wrong); option 1 gives the convenience with one confirming look.
+- Prerequisite: settle name normalization (case, whitespace, punctuation — plan open item #2)
+  before building the gate.
+- Consequences: PIs attached to a duplicate candidate can't be reassigned in V1 (technical plan);
+  option 1 re-creates them under the canon metric via the pre-fill.
+- Related: LIFE-01, LIFE-02, LIFE-03, LIFE-05, FIND-03.
+

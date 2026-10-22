@@ -74,6 +74,15 @@ constantly). Details and the `git log` one-liner are in AGENTS.md. A convention,
 - Prefer naming the backlog ID in commit subjects (`REL-07: ...`).
 - When you finish reviewing, say "approve" or "changes requested" explicitly.
 
+## Where notes go (all agents, incl. CoCo)
+
+Write notes where the topic lives, never in a new per-agent file: task status/evidence → that
+row in `docs/features.md`; design decisions → `docs/decisions.md`; deploy/runtime lessons →
+`docs/app-design-notes.md`; Oracle- or Snowflake-wide state → a dated section at the end of
+`oracle_bi_agent/docs/state.md` plus its Cross-tool TODOs. Tag additions `(#coco)` / `(#claude)` /
+`(#codex)`; never rewrite another agent's entry. Before taking a DEC number, check open branches
+and uncommitted work for one already in use.
+
 ## Codex response
 
 _(Codex: agree / disagree / amend, per rule. Chris decides.)_

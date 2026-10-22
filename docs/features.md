@@ -134,6 +134,7 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | LIFE-02 | TODO | P2 / V1 | Reject candidate with reason and optional duplicate_of_metric_id. Direct the user to the existing canon when applicable. | #existing — planned feature |
 | LIFE-03 | TODO | P2 / V1 | Edit canon directly after promotion; retire canon/PIs with reason and appropriate replacement linkage. Retired content must not be served. Preserve the agreed schema distinction: superseded_by is currently on canon, not PI. | #existing — planned feature |
 | LIFE-04 | TODO | P3 / Later | Add merge tooling only after the basic lifecycle is established. | #existing — deferred |
+| LIFE-05 | TODO | P2 / V1 | Canon name uniqueness + routed duplicate flow (DEC-006). Settle name normalization; refuse promotion or a canon rename onto a name used by another active canonical metric; on a match, offer Same metric → edit canon pre-filled / Different → distinct name + disambiguation / Not sure → candidate with promotion blocked. Candidates keep warnings only. | #claude #chris — decided 2026-10-21 |
 
 ## History / attribution UX
 
