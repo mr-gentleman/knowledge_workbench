@@ -109,6 +109,11 @@ handling, promotion, serving of last-passing revisions, and rollback.
 - One branch per change: `codex/<topic>`, `claude/<topic>`. Merge to `main` via
   review unless #chris says otherwise. Fetch and read the latest before editing
   shared files; preserve others' concurrent changes.
+- **Every commit ends with an `Agent:` trailer** naming tool and model:
+  `Agent: claude / claude-opus-5-5`, `Agent: coco / <model or auto>`, `Agent: codex / <model>`,
+  `Agent: human / chris`. Git history is the changelog — don't keep a separate one. View it with
+  `git log --format='%ad  %s  %(trailers:key=Agent,valueonly,separator=)' --date=short`.
+  Local clones enforce this with `git config core.hooksPath .githooks` (run once per clone).
 - Never commit secrets — `.gitignore` excludes `*secret*`, `.env`, `.snowflake/`.
 - Record meaningful architecture/code decisions in [docs/decisions.md](docs/decisions.md):
   date, origin, context, rationale, alternatives, consequences; link tasks and commits.
