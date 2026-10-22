@@ -105,3 +105,95 @@ Tiered plan (cheap → rich):
   individual issues. Optional GitLab↔Jira integration links commits/MRs mentioning a Jira key.
 - After the repo exists: Claude bulk-creates labels, milestone, and one issue per `features.md` row (glab/API).
 - Later: group-level board with `pillar::*` labels = cheap first cut of the 8-pillar dashboard.
+
+## MVP comparison requirements — 2026-10-22
+
+Requested by #chris; recorded by #codex. Requirements below describe the authoring
+MVP to establish in Streamlit and then compare with a bounded React prototype.
+UX proposals are hypotheses to test, not accepted layout decisions. See DEC-008/009
+and the active task IDs in features.md. No implementation or migration is claimed.
+
+### Required scope
+
+- **Real existing knowledge:** import five representative metrics first, then the
+  intended legacy metric collection per SERVE-02. Preserve authorship, identity
+  mappings, PI relationships, and fact-table references. Reconcile counts/content
+  and report exceptions. Legacy records do not bypass validation/promotion gates.
+  Test examples include an incomplete candidate, a ready candidate, a canonical
+  metric, and a metric with three PIs (e.g. daily/monthly/source contexts).
+- **Metric workspace:** view/edit metric identity and its zero-to-many PIs together.
+  Support incomplete candidate saves, adding/editing SQL implementations, visible
+  revision-bound validation results, and explicit promotion readiness/actions.
+  Canon remains editable. Saved, validated, canonical, and served are distinct.
+  SQL execution success does not establish business correctness.
+- **Fact-table workspace:** separate browse/edit page for existing fact-table
+  knowledge (definition, grain, key, time field, required filters, gotchas).
+  Link from a PI to its fact-table context and provide a clear return path.
+- **Discovery/navigation:** sidebar or equivalent persistent navigation between
+  Metrics and Fact tables; searchable lists in both areas; distinguish candidates
+  from canon in metric results. Users must find knowledge without first knowing
+  its database table or lifecycle state.
+- **Editing safety:** visibly define save scope for metric versus PI edits.
+  Preserve submitted drafts on failed saves/conflicts. Specify and test what
+  happens to unsubmitted changes when changing PIs, metrics, or workspaces; no
+  unexplained loss or misleading saved indicator. Draft retention versus explicit
+  save/discard navigation remains a design choice, not a promise of autosave.
+- **Lifecycle:** apply existing promotion/identity gates (including description,
+  qualifying PI and name rules), with understandable missing requirements.
+  AI origin is provenance, separate from candidate/canon status. Automated intake
+  and a full machine-adjudication workflow remain deferred; a clearly labeled
+  fixture may test how a future AI proposal is presented.
+
+### Proposed information architecture — test before finalizing
+
+Two primary destinations: **Metrics** and **Fact tables**. Within Metrics, try
+**All / Canon / Candidates** list filters or tabs and a common detail workspace.
+Try Canon as the default for lookup and Candidates as the review queue; compare
+with All as the default. Keep candidate badges unmistakable in mixed results.
+
+Within the metric workspace, show identity/definition and an implementation list;
+select or expand a PI to edit its SQL, context, fact-table link, and validation.
+Daily/monthly views are PIs only when they express the same metric definition;
+different business meanings remain distinct metrics (DEC-007).
+
+This organizes around what an SME is working on while showing lifecycle status.
+It does not merge candidate/canon database identities: promotion navigates to the
+resulting canonical record and preserves the candidate's resolution/provenance.
+
+A separate Candidates review destination may become useful for volume/bulk
+adjudication; a standalone Implementations browser may become useful for finding
+SQL across metrics. Neither is required for this initial comparison. Any later
+alternate entry point should reuse the same detail/edit workflow.
+
+### Comparison script and evidence
+
+Use the same representative imported dataset and backend rules for both versions.
+Keep prototype writes isolated from live authoring until coexistence is verified.
+Use fixtures where needed, but label mocked saves/authentication/latency explicitly.
+
+1. Find a known canonical metric and explain its definition; find an incomplete
+   candidate and explain why it is not canon.
+2. Inspect three PIs, choose the appropriate context, edit one SQL definition,
+   handle a failed check, correct it, and see which exact revision passed.
+3. Edit identity and PI content; demonstrate which Save affects which records.
+   Promote a qualifying candidate and show the resulting canonical workspace.
+4. Follow a PI to a fact table, edit its knowledge, return to the metric, and
+   verify navigation, search state, selection, and draft handling.
+5. Attempt a stale save from a second session; preserve the draft, explain the
+   conflict, and demonstrate explicit recovery without overwriting another edit.
+6. For the deployed React feasibility spike, verify permitted/denied app access,
+   two distinct authenticated actors, and a scoped test write with correct human
+   attribution. This gate is unverified until exercised in the actual account.
+7. After the first slice works, make one realistic change (e.g. add a PI while
+   retaining an identity draft) to sample maintenance effort.
+
+Record task completion, confusion about status/meaning, navigation effort,
+lost context, and user feedback. Measure warm interaction/save times separately
+from cold start, SQL execution, and lock waiting; record backend calls per action.
+Note implementation effort, framework workarounds, and files/rules touched by the
+follow-up change. A two-day spike samples maintainability; it does not prove it.
+
+Continue Streamlit to the usable authoring MVP (milestone A); then time-box the
+React comparison to roughly two days initially. Oracle production cutover
+(milestone B) is not required for the comparison. Switch only if workflow gains
+and a credible authenticated deployment path justify the extra operating cost.
