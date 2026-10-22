@@ -1,11 +1,15 @@
 """Throwaway SQL-editor spike — sidebar toggle 'SQL editor spike'. No DB writes.
 
-Compares streamlit-code-editor and streamlit-ace against st.text_area. "Save"
-only echoes what Python received, to expose lost last keystrokes.
+Compares streamlit-code-editor, streamlit-ace and streamlit-monaco against
+st.text_area. "Save" only echoes what Python received, to expose lost last
+keystrokes. Ctrl+Enter in code-editor compiles the SQL with EXPLAIN (never runs
+it) as WORKBENCH_APP — so tables that role can't see fail as "not authorized".
 """
 import importlib.metadata as md
 
 import streamlit as st
+
+from app.db import db_lock, session
 
 SAMPLE_SQL = """-- Paste a real 80-line Finance query (e.g. NRR) over this.
 WITH base AS (
@@ -40,11 +44,22 @@ def _saved(label: str, text: str | None):
         st.code(saved.splitlines()[-1] if saved.strip() else "(empty)", language="sql")
 
 
+def _compile(sql: str):
+    """EXPLAIN only compiles — no rows read, no DML executed."""
+    try:
+        with db_lock():
+            session().sql(f"EXPLAIN USING TEXT {sql.strip().rstrip(';')}").collect()
+        st.success("Compiles OK")
+    except Exception as e:  # surface the Snowflake error as-is
+        st.error(str(e).splitlines()[0] if str(e) else repr(e))
+
+
 def render():
     st.title("SQL editor spike")
     st.caption(
         f"streamlit {st.__version__} · streamlit-code-editor {_version('streamlit-code-editor')} · "
-        f"streamlit-ace {_version('streamlit-ace')} · reruns this session: "
+        f"streamlit-ace {_version('streamlit-ace')} · streamlit-monaco {_version('streamlit-monaco')} · "
+        f"reruns this session: "
         f"{st.session_state.setdefault('spike_runs', 0)}"
     )
     st.session_state["spike_runs"] += 1
@@ -57,14 +72,19 @@ def render():
             "- Click another widget — does each editor keep content and cursor?"
         )
 
-    a, b, c = st.columns(3)
+    a, b, m, c = st.columns(4)
     with a:
         st.subheader("streamlit-code-editor")
+        st.caption("Ctrl+Enter = compile check (EXPLAIN)")
         try:
             from code_editor import code_editor
             resp = code_editor(SAMPLE_SQL, lang="sql", height=[20, 30], key="ce")
             _saved("code-editor", (resp or {}).get("text") or None)
             st.caption(f"Last response type: {(resp or {}).get('type') or '(none)'}")
+            # Compile once per Ctrl+Enter, not on every later rerun.
+            if resp and resp.get("type") == "submit" and resp.get("id") != st.session_state.get("ce_done"):
+                st.session_state["ce_done"] = resp.get("id")
+                _compile(resp.get("text") or "")
         except ImportError:
             st.error("streamlit-code-editor not installed")
     with b:
@@ -77,6 +97,14 @@ def render():
             _saved("ace", text)
         except ImportError:
             st.error("streamlit-ace not installed")
+    with m:
+        st.subheader("streamlit-monaco")
+        try:
+            from streamlit_monaco import st_monaco  # no key= support: one per page
+            text = st_monaco(SAMPLE_SQL, height="480px", language="sql", theme="vs-dark")
+            _saved("monaco", text)
+        except ImportError:
+            st.error("streamlit-monaco not installed")
     with c:
         st.subheader("st.text_area (baseline)")
         text = st.text_area("SQL", SAMPLE_SQL, height=480, key="ta", label_visibility="collapsed")

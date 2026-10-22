@@ -10,4 +10,5 @@ dependencies = [
     # SQL-editor spike (app/editor_spike.py, sidebar toggle) — remove the loser.
     "streamlit-code-editor==0.1.22",
     "streamlit-ace==0.1.1",
+    "streamlit-monaco==0.1.3",
 ]
