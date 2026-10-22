@@ -43,6 +43,10 @@ search = st.sidebar.text_input("Search metrics")
 rows = repo.list_candidates(search)
 # Stable IDs keep a concurrent rename/reordering from selecting a different record.
 labels = {r["CANDIDATE_ID"]: f"#{r['CANDIDATE_ID']} · {r['FULL_NAME']}" for r in rows}
+# A just-created candidate opens on the next run. The radio's value can only be
+# set before the widget renders, so the create flow parks the id here and reruns.
+if st.session_state.get("just_created") in labels:
+    st.session_state["selected_candidate"] = st.session_state.pop("just_created")
 selected = st.sidebar.radio(
     "Candidates", [None, *labels],
     format_func=lambda cid: "➕ New metric" if cid is None else labels[cid],
@@ -59,9 +63,13 @@ if selected is None:
     submitted, fields, _ = candidate_form("new")
     if submitted:
         out = services.save_new_candidate(fields, viewer())
-        _flash(out)
         if out.ok:
+            # Open the new record: the sidebar lists it and the create form is gone,
+            # so a repeat submit can't mint a second candidate (REL-02).
             st.session_state["just_created"] = out.record_id
+            st.session_state["edit_feedback"] = out
+            st.rerun()
+        _flash(out)
 else:
     editor_key = f"candidate-editor:{selected}"
     if editor_key not in st.session_state:
