@@ -1,6 +1,5 @@
 #!/bin/sh
-# Every commit names who made it (AGENTS.md → Collaboration). Merge commits are exempt.
+# Gentle reminder only — never blocks a commit. See AGENTS.md → Collaboration.
 head -1 "$1" | grep -q '^Merge ' && exit 0
-grep -qE '^Agent: [^ ]+ / [^ ]+' "$1" && exit 0
-echo "commit-msg: add a trailer line 'Agent: <tool> / <model>', e.g. 'Agent: claude / claude-opus-5-5' or 'Agent: human / chris' (see AGENTS.md)." >&2
-exit 1
+grep -qE '^Agent: ' "$1" || echo "reminder: consider ending the commit with 'Agent: <tool> / <model>' (AGENTS.md). Commit kept." >&2
+exit 0
