@@ -33,6 +33,22 @@ Standing engineering philosophy and coding instructions: [AGENTS.md](../AGENTS.m
 5. **Process:** independent review required for persistence, identity, security and serving changes only;
    enforce merges with branch protection + a required test check wherever the repo settles (GitHub or GitLab).
 
+### Architecture direction — 2026-10-22
+
+#chris, recorded by #codex: **Streamlit MVP; frontend-independent Python application
+logic; React and hosting evaluated later.** Apply the existing UI/service/repository
+boundaries during feature work, with explicit operation inputs/results and trusted actor
+context. No speculative API, second frontend, or wholesale refactor in V1. Evaluate the
+representative metric/PI editing workflow before deciding whether React is warranted.
+A future transition may briefly support both UIs, but only after cross-instance save,
+permission, retry, and audit invariants are verified. Company React hosting is not presumed
+suitable; inspect its controls alongside a possible custom Snowpark Container Services
+deployment. This does not change the pre-SME hardening order above.
+
+Rationale and implementation guidance:
+[DEC-008](decisions.md#dec-008--streamlit-mvp-with-frontend-independent-application-logic).
+This is architecture guidance, not a claim that portability or a second deployment is implemented.
+
 ## Next sprint / six-step delivery plan
 
 Product priorities from **#chris**; sequencing and refinements by **#codex**, recorded 2026-10-21. This replaces the earlier five-step ordering. These steps organize the existing task IDs; they are not a second status tracker or a claim that the work is complete.
