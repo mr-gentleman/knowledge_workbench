@@ -1,4 +1,5 @@
-# Deploy with Snowflake CLI:  snow streamlit deploy --replace
+# Deploy with Snowflake CLI:  snow streamlit deploy --replace -c workbench_deploy
+# (workbench_deploy uses role WORKBENCH_APP, so the app stays owned by that role.)
 definition_version: 2
 entities:
   knowledge_workbench:
@@ -8,10 +9,11 @@ entities:
       database: AI_PLATFORM
       schema: WORKBENCH
     title: Knowledge Workbench
+    runtime_name: SYSTEM$ST_CONTAINER_RUNTIME_PY3_11
+    compute_pool: SYSTEM_COMPUTE_POOL_CPU
     query_warehouse: BIZ_AI_WH
     main_file: streamlit_app.py
     stage: WORKBENCH_APP_STAGE
     artifacts:
       - streamlit_app.py
-      - environment.yml
       - app/

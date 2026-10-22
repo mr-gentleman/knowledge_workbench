@@ -28,8 +28,17 @@ Companion docs: `handoff-2026-10-16.md` (state + settled schema decisions), `fea
   **your** rights — it can work while the deployed app is broken. Always smoke-test the deployed app.
 - Multi-file `app/` package failed on the first deploy (`ModuleNotFoundError: app`) → using
   **`streamlit_app_single.py`** (generated from the multi-file source; edit the source, regenerate).
+  Root cause was `VERSION$1` shipping **without `app/`**, not a SiS limit on packages — the stage root
+  is the import root, so `from app import …` works when `app/` is uploaded next to `streamlit_app.py`.
+  Retry multi-file; once a published deploy is smoke-tested, delete the single-file build.
+- **Dependencies (container runtime):** read from `pyproject.toml` / `requirements.txt` only —
+  `environment.yml` is the warehouse-runtime (conda) format and was ignored, so it's removed.
+  Without an attached artifact repository the app gets only what ships with the runtime
+  (Python 3.11, Streamlit ≥1.50, Snowpark) — enough today. Add `pyproject.toml` + an artifact
+  repository when a pip package is needed (e.g. the SQL-editor spike).
 - Deploy target needs the schema set explicitly (was the "unable to deploy" error).
-- A second personal copy exists in `USER$CLENZINI.PUBLIC` (workspace's own app) — safe to drop.
+- The second personal copy in `USER$CLENZINI.PUBLIC` (workspace's own app) was dropped 2026-10-22.
+  The live app was renamed `VO0TBC_5CROCK7E6` → `KNOWLEDGE_WORKBENCH` (owner unchanged).
 - **Next: GitLab repo + Git-backed workspace** so deploys come from git, not hand uploads.
   Later: GitLab CI → `snow streamlit deploy`.
 
