@@ -9,7 +9,7 @@ Plans (in the oracle_bi_agent workspace): `notes/streamlit-app-master-plan.md`,
 ## Layout
 
     streamlit_app.py   entry page
-    pyproject.toml     dependency file the container runtime requires (no pins; no artifact repo)
+    pyproject.toml     dependency file the container runtime requires (packages via the PyPI artifact repo)
     app/db.py          session + trusted viewer identity
     app/repositories.py SQL + transactions, no business rules
     app/services.py    workflows + invariants (save, no-op, stale-edit, name collision)
@@ -26,7 +26,8 @@ Everything lives in `AI_PLATFORM.WORKBENCH`. The app role has no grants on
 
 1. Run `sql/001_workbench_schema.sql` (and `002_grants.sql` once the role is decided).
 2. Deploy from the repo (the only source; no Snowsight Workspace copy):
-   `snow streamlit deploy --replace -c workbench_deploy` — that connection uses role
+   `scripts/deploy.sh` (runs `snow streamlit deploy --replace -c workbench_deploy`, then
+   re-attaches the PyPI artifact repository) — that connection uses role
    `WORKBENCH_APP`, so the app stays owned by it. Needs Snowflake CLI >= 3.30.
 3. Local dev: add a `workbench` connection to `~/.snowflake/connections.toml`, then
    `streamlit run streamlit_app.py`.

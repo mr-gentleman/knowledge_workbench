@@ -39,11 +39,12 @@ new dependencies and abstraction layers; remove superseded code.**
   (in the deployed app that can be the service user).
 - The app runs with **owner's rights** as `WORKBENCH_APP`, which writes only
   `AI_PLATFORM.WORKBENCH`. Never grant it anything on `AI_PLATFORM.DICTIONARY`.
-- No pip installs at runtime: without an attached artifact repository the app has
-  only what ships with the runtime. A new package is a platform change, not a code change.
+- Packages: the app has `snowflake.snowpark.pypi_shared_repository` attached, so
+  adding a PyPI package to `pyproject.toml` works (`SNOWFLAKE.PYPI_REPOSITORY_USER`
+  reaches WORKBENCH_APP via PUBLIC). Pin versions with `==`.
 - **Streamlit reruns the whole page on every click.** Every query on the page runs
   on every interaction — that's the main latency lever.
-- Deploy from the repo only: `snow streamlit deploy --replace -c workbench_deploy`
+- Deploy from the repo only: `scripts/deploy.sh` (wraps `snow streamlit deploy --replace -c workbench_deploy`)
   (Snowflake CLI >= 3.30; `snowflake.yml` lists the artifacts, including `pyproject.toml`).
 - Tests: `python -m unittest discover -s tests -v` (Python 3.11 + `streamlit>=1.50`). They use an
   in-memory fake for `app/repositories.py`, so they cover page and rule logic, not SQL.

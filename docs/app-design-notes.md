@@ -56,6 +56,13 @@ Companion docs: `handoff-2026-10-16.md` (state + settled schema decisions), `fea
   - #coco 2026-10-22 — supersedes "add `pyproject.toml` when a pip package is needed": the
     container runtime refuses to start without a dependency file ("pyproject.toml file does
     not exist"), so a minimal unpinned `pyproject.toml` is always deployed (729bb7d).
+  - #coco 2026-10-22 — supersedes "without an attached artifact repository": the app now has
+    `snowflake.snowpark.pypi_shared_repository` attached (visible in SHOW STREAMLITS), and
+    `SNOWFLAKE.PYPI_REPOSITORY_USER` is granted to PUBLIC, so WORKBENCH_APP can use it. PyPI
+    packages and `==` pins in `pyproject.toml` now work. Syntax is plural:
+    `ALTER STREAMLIT … SET ARTIFACT_REPOSITORIES = (…)`. CLI 3.30 has no snowflake.yml field
+    for it; `--replace` on an existing app only ALTERs diffs so it survives, and
+    `scripts/deploy.sh` re-sets it in case the app is ever recreated.
 - Deploy target needs the schema set explicitly (was the "unable to deploy" error).
 - A second personal copy exists in `USER$CLENZINI.PUBLIC` (workspace's own app) — safe to drop.
   - #coco 2026-10-22 — done: that copy is dropped, and the live app was renamed
