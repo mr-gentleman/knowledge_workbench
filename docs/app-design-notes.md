@@ -4,6 +4,23 @@ Lessons learned + design decisions from building/deploying v1 (Sep 30 – Oct 20
 Companion docs: `handoff-2026-10-16.md` (state + settled schema decisions), `features.md`
 (feature list), `open-items.md` (legacy import, schema placement).
 
+## Status 2026-10-21 (supersedes the 2026-10-20 block below)
+
+- App renamed **`AI_PLATFORM.WORKBENCH.KNOWLEDGE_WORKBENCH`** (owner `WORKBENCH_APP`, `BIZ_AI_WH`,
+  `SYSTEM_COMPUTE_POOL_CPU`, container runtime). Stray personal copy dropped.
+- **Deployed from this repo with the Snowflake CLI** — `~/.local/bin/snow` (3.30.0; 3.7.0 can't do
+  container runtime) and connection `workbench_deploy` in `~/.snowflake/connections.toml`
+  (login `clenzini`, browser SSO, role `WORKBENCH_APP`, chmod 600). Deployed 179b843, then the
+  `pyproject.toml` fix (729bb7d): the container runtime **refuses to start without a dependency
+  file**, and `--prune` had removed the Snowsight-generated one.
+- **Multi-file app works when deployed** (`app/` on the stage) → single-file bundle can retire (PLAT-01).
+- **All viewers share one Snowflake session** (observed: two windows, one SESSION_ID) →
+  `db_lock` fix, DEC-004. Live as of this deploy.
+- Pending: published-app smoke test (REL-01/03/06/07, test row `ZZ_COCO_TEST`), delete the
+  Workspace copy, idle auto-shutdown (the app and Workspace preview poll LS/DESCRIBE every ~2.5 s,
+  24/7), PLAT-06 backups (retention is 1 day).
+- Process: Claude + Codex + CoCo work via `docs/collaboration.md`; `Agent:` commit trailers.
+
 ## Status at restart (2026-10-20)
 
 - Schema, tables, sequences, grants: live and verified.
