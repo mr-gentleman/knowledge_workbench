@@ -61,6 +61,12 @@ Number collisions (both took DEC-005) are fixed at merge by renumbering the late
 entry, never just the latest edit. A factual dispute ("is the session shared?"):
 the evidence, cited — query IDs, test output, a link.
 
+**8. Every commit says who made it.** End each commit message with
+`Agent: <tool> / <model>` (e.g. `Agent: claude / claude-opus-5-5`, `Agent: human / chris`).
+Git history is the changelog; there is no separate changelog file (it would conflict
+constantly). Details and the `git log` one-liner are in AGENTS.md; `.githooks/commit-msg`
+enforces it locally.
+
 ## Small conveniences (not rules)
 
 - Start each session with `git fetch` and read `features.md` DOING rows: they're the
