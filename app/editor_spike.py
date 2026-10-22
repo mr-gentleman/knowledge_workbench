@@ -1,8 +1,9 @@
 """Throwaway SQL-editor spike — sidebar toggle 'SQL editor spike'. No DB writes.
 
-Compares streamlit-code-editor, streamlit-ace and streamlit-monaco against
+Compares streamlit-code-editor and streamlit-ace against
 st.text_area. "Save" only echoes what Python received, to expose lost last
-keystrokes. Ctrl+Enter in code-editor compiles the SQL with EXPLAIN (never runs
+keystrokes. (streamlit-monaco was dropped: it loads Monaco from cdn.jsdelivr.net,
+which SiS blocks, so it hangs on "Loading...".) Ctrl+Enter in code-editor compiles the SQL with EXPLAIN (never runs
 it) as WORKBENCH_APP — so tables that role can't see fail as "not authorized".
 """
 import importlib.metadata as md
@@ -58,7 +59,7 @@ def render():
     st.title("SQL editor spike")
     st.caption(
         f"streamlit {st.__version__} · streamlit-code-editor {_version('streamlit-code-editor')} · "
-        f"streamlit-ace {_version('streamlit-ace')} · streamlit-monaco {_version('streamlit-monaco')} · "
+        f"streamlit-ace {_version('streamlit-ace')} · "
         f"reruns this session: "
         f"{st.session_state.setdefault('spike_runs', 0)}"
     )
@@ -72,7 +73,7 @@ def render():
             "- Click another widget — does each editor keep content and cursor?"
         )
 
-    a, b, m, c = st.columns(4)
+    a, b, c = st.columns(3)
     with a:
         st.subheader("streamlit-code-editor")
         st.caption("Ctrl+Enter = compile check (EXPLAIN)")
@@ -97,14 +98,6 @@ def render():
             _saved("ace", text)
         except ImportError:
             st.error("streamlit-ace not installed")
-    with m:
-        st.subheader("streamlit-monaco")
-        try:
-            from streamlit_monaco import st_monaco  # no key= support: one per page
-            text = st_monaco(SAMPLE_SQL, height="480px", language="sql", theme="vs-dark")
-            _saved("monaco", text)
-        except ImportError:
-            st.error("streamlit-monaco not installed")
     with c:
         st.subheader("st.text_area (baseline)")
         text = st.text_area("SQL", SAMPLE_SQL, height=480, key="ta", label_visibility="collapsed")
