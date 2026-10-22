@@ -63,6 +63,10 @@ Companion docs: `handoff-2026-10-16.md` (state + settled schema decisions), `fea
     `ALTER STREAMLIT … SET ARTIFACT_REPOSITORIES = (…)`. CLI 3.30 has no snowflake.yml field
     for it; `--replace` on an existing app only ALTERs diffs so it survives, and
     `scripts/deploy.sh` re-sets it in case the app is ever recreated.
+  - #coco 2026-10-22 — component check: a component must ship its whole JS bundle. SiS blocks
+    runtime script loads from outside (streamlit-monaco fetches Monaco from cdn.jsdelivr.net and
+    hangs on "Loading..."). Before adding one, grep its package for `https://cdn`. Ace-based
+    streamlit-code-editor / streamlit-ace are self-contained and work.
 - Deploy target needs the schema set explicitly (was the "unable to deploy" error).
 - A second personal copy exists in `USER$CLENZINI.PUBLIC` (workspace's own app) — safe to drop.
   - #coco 2026-10-22 — done: that copy is dropped, and the live app was renamed
