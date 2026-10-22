@@ -255,3 +255,59 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   Full AI intake/adjudication remains future scope. Record observed UX, latency,
   change effort, and deployed authentication/attribution evidence before choosing.
 - Related: UX-01–04, FIND-01–02, SERVE-02; docs/app-design-notes.md comparison requirements.
+
+## DEC-010 — Shared metric discovery with a future stewardship view
+
+- Date: 2026-10-22. Origin: #chris, summarized by #codex.
+- Status: direction agreed in conversation; documentation proposed for merge.
+- Decision: candidates and canon share metric discovery and the detail workspace,
+  with obvious labels and optional filtering. This settles that part of DEC-009's
+  open navigation question. Keep a separate fact-table workspace and PIs within
+  their metric; a separate PI browser remains deferred.
+- V1: search plus department and lifecycle filtering. Candidate review distinguishes
+  unfinished SME contributions, failing checks, and proposals awaiting human review.
+  Source/provenance, readiness, lifecycle, and age are separate dimensions; do not
+  create a lifecycle status for each reason work needs attention.
+- Later direction: expose what works, what fails, and what to do next using positive/
+  negative feedback, confusability, usage, new knowledge, quality findings, and
+  frequently used reports/questions lacking suitable metrics. Extend to dimensions
+  when that domain is implemented. A Needs attention view should link to the same
+  editors, not duplicate them. Its placement (separate destination or overlay),
+  scoring, prioritization, and evidence model remain open.
+- Rationale: users should not need to know storage tables or lifecycle state before
+  finding a metric. Stewardship adds actionable evidence beyond a passive catalog.
+  Canonical status, popularity, and correctness must not be conflated.
+- Alternatives/deferred: mandatory separate candidate/canon screens; literal folder
+  ownership; immediate quality dashboards. Department folders are an optional browse
+  presentation, not a decision to add a hierarchy or multi-department schema now.
+- Related: FIND-01/04, UX-01/02/04, STEW-01; app-design-notes.md discovery guidance.
+
+## DEC-011 — Preserve history; hide rejected and retired records by default
+
+- Date: 2026-10-22. Origin: #chris, clarified by #codex.
+- Status: direction agreed in conversation; documentation proposed for merge.
+- Context: test candidates clutter discovery. Clarify the existing history/lifecycle
+  design rather than introduce another deletion mechanism.
+- Decision: current records remain mutable; committed content changes append complete
+  revision snapshots atomically. This is not an insert-only current-state model or a
+  new event-sourcing architecture. Preserve prior snapshots and attribution.
+- Candidates remain open/promoted/rejected. Reject unwanted/test candidates with a
+  reason (e.g. Test data); preserve duplicate linkage when applicable. Promoted
+  candidates leave the review queue and retain a link to the resulting canon.
+- Canon metrics, PIs, and fact-table knowledge remain active/retired. Retire obsolete
+  entries with a reason; use replacement links where the schema supports them.
+  Do not add an independent is_deleted flag, archive status, or hard-delete UI in V1.
+- Default browsing/search hides rejected/promoted candidate records and retired
+  knowledge. An explicit include-closed/retired control exposes them for inspection.
+  The active canonical result remains visible after promotion.
+- Retirement must affect eligibility as well as visibility: retired canon and PIs
+  cannot be served, including fallback to older passing revisions. Define dependent
+  PI handling for fact-table retirement before implementation; do not silently
+  cascade or assume hiding a table withdraws its consumers.
+- Rationale: clear lifecycle actions remove clutter while preserving lineage and
+  recovery. A separate deletion flag introduces contradictory state combinations.
+  Newness comes from dates; incomplete/blocked comes from readiness, not new statuses.
+- Consequences: test candidate cleanup uses normal audited rejection; no records
+  are changed by this documentation. Restoration is a new audited change (HIST-04),
+  subject to applicable identity/validation gates, never history rewriting.
+- Related: LIFE-02/03/06, HIST-04, FIND-01/04; Oct-16 handoff lifecycle decisions.
