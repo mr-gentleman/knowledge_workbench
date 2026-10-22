@@ -59,6 +59,17 @@ new dependencies and abstraction layers; remove superseded code.**
 | `app/db.py` | Session, trusted identity | Anything else |
 | `sql/` | Ordered migrations | Edits to shipped files |
 
+**Frontend portability (DEC-008):** V1 stays Streamlit. Keep application rules in ordinary
+Python services with explicit inputs/results, independent of widgets, reruns, and
+`st.session_state`. Supply verified actor context at the boundary; never trust a
+browser/form username. Keep framework-specific identity/connection acquisition isolated.
+A future React API may reuse these operations; do not build an API, second frontend,
+or speculative abstraction solely for portability. Hosting remains a separate decision.
+Before multiple frontends/instances write concurrently, verify shared persistence
+invariants; process-local locks do not coordinate separate instances.
+See [DEC-008](docs/decisions.md#dec-008--streamlit-mvp-with-frontend-independent-application-logic)
+for the agreed direction and hosting criteria.
+
 All statements in one transaction use the same session. A screen may coordinate
 several records without merging their layers.
 

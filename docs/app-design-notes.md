@@ -105,3 +105,151 @@ Tiered plan (cheap → rich):
   individual issues. Optional GitLab↔Jira integration links commits/MRs mentioning a Jira key.
 - After the repo exists: Claude bulk-creates labels, milestone, and one issue per `features.md` row (glab/API).
 - Later: group-level board with `pillar::*` labels = cheap first cut of the 8-pillar dashboard.
+
+## MVP comparison requirements — 2026-10-22
+
+Requested by #chris; recorded by #codex. Requirements below describe the authoring
+MVP to establish in Streamlit and then compare with a bounded React prototype.
+DEC-010 settles shared candidate/canon discovery; other layout proposals remain
+hypotheses to test. See DEC-008–011
+and the active task IDs in features.md. No implementation or migration is claimed.
+
+### Required scope
+
+- **Real existing knowledge:** import five representative metrics first, then the
+  intended legacy metric collection per SERVE-02. Preserve authorship, identity
+  mappings, PI relationships, and fact-table references. Reconcile counts/content
+  and report exceptions. Legacy records do not bypass validation/promotion gates.
+  Test examples include an incomplete candidate, a ready candidate, a canonical
+  metric, and a metric with three PIs (e.g. daily/monthly/source contexts).
+- **Metric workspace:** view/edit metric identity and its zero-to-many PIs together.
+  Support incomplete candidate saves, adding/editing SQL implementations, visible
+  revision-bound validation results, and explicit promotion readiness/actions.
+  Canon remains editable. Saved, validated, canonical, and served are distinct.
+  SQL execution success does not establish business correctness.
+- **Fact-table workspace:** separate browse/edit page for existing fact-table
+  knowledge (definition, grain, key, time field, required filters, gotchas).
+  Link from a PI to its fact-table context and provide a clear return path.
+- **Discovery/navigation:** sidebar or equivalent persistent navigation between
+  Metrics and Fact tables; searchable lists in both areas; distinguish candidates
+  from canon in metric results. Users must find knowledge without first knowing
+  its database table or lifecycle state.
+- **Editing safety:** visibly define save scope for metric versus PI edits.
+  Preserve submitted drafts on failed saves/conflicts. Specify and test what
+  happens to unsubmitted changes when changing PIs, metrics, or workspaces; no
+  unexplained loss or misleading saved indicator. Draft retention versus explicit
+  save/discard navigation remains a design choice, not a promise of autosave.
+- **Lifecycle:** apply existing promotion/identity gates (including description,
+  qualifying PI and name rules), with understandable missing requirements.
+  AI origin is provenance, separate from candidate/canon status. Automated intake
+  and a full machine-adjudication workflow remain deferred; a clearly labeled
+  fixture may test how a future AI proposal is presented.
+
+### Information architecture — agreed structure, open presentation
+
+Two primary destinations: **Metrics** and **Fact tables**. Candidates and canon
+share discovery and the metric workspace (DEC-010), with unmistakable badges and
+optional **All / Canon / Candidates** filtering. The default filter and whether
+filters are tabs or controls remain open. Candidates provides a focused review
+queue without requiring a different editor.
+
+Within the metric workspace, show identity/definition and an implementation list;
+select or expand a PI to edit its SQL, context, fact-table link, and validation.
+Daily/monthly views are PIs only when they express the same metric definition;
+different business meanings remain distinct metrics (DEC-007).
+
+This organizes around what an SME is working on while showing lifecycle status.
+It does not merge candidate/canon database identities: promotion navigates to the
+resulting canonical record and preserves the candidate's resolution/provenance.
+
+A separate Candidates review destination may become useful for volume/bulk
+adjudication; a standalone Implementations browser may become useful for finding
+SQL across metrics. Neither is required for this initial comparison. Any later
+alternate entry point should reuse the same detail/edit workflow.
+
+### Comparison script and evidence
+
+Use the same representative imported dataset and backend rules for both versions.
+Keep prototype writes isolated from live authoring until coexistence is verified.
+Use fixtures where needed, but label mocked saves/authentication/latency explicitly.
+
+1. Find a known canonical metric and explain its definition; find an incomplete
+   candidate and explain why it is not canon.
+2. Inspect three PIs, choose the appropriate context, edit one SQL definition,
+   handle a failed check, correct it, and see which exact revision passed.
+3. Edit identity and PI content; demonstrate which Save affects which records.
+   Promote a qualifying candidate and show the resulting canonical workspace.
+4. Follow a PI to a fact table, edit its knowledge, return to the metric, and
+   verify navigation, search state, selection, and draft handling.
+5. Attempt a stale save from a second session; preserve the draft, explain the
+   conflict, and demonstrate explicit recovery without overwriting another edit.
+6. For the deployed React feasibility spike, verify permitted/denied app access,
+   two distinct authenticated actors, and a scoped test write with correct human
+   attribution. This gate is unverified until exercised in the actual account.
+7. After the first slice works, make one realistic change (e.g. add a PI while
+   retaining an identity draft) to sample maintenance effort.
+
+Record task completion, confusion about status/meaning, navigation effort,
+lost context, and user feedback. Measure warm interaction/save times separately
+from cold start, SQL execution, and lock waiting; record backend calls per action.
+Note implementation effort, framework workarounds, and files/rules touched by the
+follow-up change. A two-day spike samples maintainability; it does not prove it.
+
+Continue Streamlit to the usable authoring MVP (milestone A); then time-box the
+React comparison to roughly two days initially. Oracle production cutover
+(milestone B) is not required for the comparison. Switch only if workflow gains
+and a credible authenticated deployment path justify the extra operating cost.
+
+
+## Discovery and stewardship guidance — 2026-10-22
+
+#chris direction, summarized by #codex; DEC-010/011 govern. Status and tasks stay in
+features.md. This supplements the earlier MVP comparison rather than expanding it
+to a full feedback platform.
+
+- **V1 discovery:** combine text search with department and lifecycle filters.
+  Verify a Finance-only search, mixed candidate/canon results, candidate-only review,
+  and explicit discovery of rejected/retired records. Filters should compose and
+  have an obvious clear action. Collapsible department groups are an optional
+  alternative presentation of metadata, not filesystem-style ownership.
+- **Candidate review:** show why attention is needed (unfinished content, failed
+  checks, or pending human review) separately from source (SME, AI, other).
+  Automated intake remains later scope; do not imply a source becomes trusted
+  merely because SQL executes. Promotion still uses the established gates.
+- **Future Needs attention:** candidate review, negative feedback, repeated confusion,
+  usage/impact, recent additions, quality findings, and possible knowledge gaps.
+  Positive feedback helps identify useful examples; it is not proof of correctness.
+  Reuse the metric/fact-table editors and later dimension editors.
+- **Evidence before scores:** where available, link feedback to the originating
+  question/report, SQL/result, affected knowledge revision, timestamp, and complaint.
+  Distinguish an actual missing metric from failed retrieval or ambiguous wording.
+  Prioritization and quality-grade definitions are undecided; no invented scores.
+- **Retirement acceptance:** reject a test candidate and confirm default search
+  excludes it, explicit closed-record search finds it, and actor/reason/history
+  remain available. Test canon/PI retirement in both UI and serving, including
+  exclusion of older passing revisions. Fact-table dependency behavior needs an
+  explicit rule before implementing its retirement flow. No cleanup executed here.
+
+## Authentication learning for the future React spike — 2026-10-22
+
+Documentation finding, not an account-level verification: custom SPCS browser apps
+can use Snowflake ingress sign-in and service-role access; ingress supplies the
+authenticated username to the backend. SPCS also supplies service credentials for
+SQL execution. Thus a custom React app does not inherently require a custom login
+system or manually managed database password.
+
+Keep three concerns separate: permission to open the app, application authorization
+to edit/review/promote, and SQL execution privileges. Preserve the scoped service
+write model plus trusted human attribution (DEC-007/008); caller's rights is a
+separate choice, not a prerequisite for attribution. Trust identity only at the
+authenticated ingress boundary, never from a browser form.
+
+Sources consulted in the discussion:
+[Ingress authentication and identity](https://docs.snowflake.com/en/developer-guide/snowpark-container-services/working-with-services#ingress-authentication);
+[SQL execution credentials](https://docs.snowflake.com/en/developer-guide/snowpark-container-services/spcs-execute-sql).
+
+Expected tradeoff: some additional endpoint/grant setup; the larger ownership cost
+is container/backend deployment and connection lifecycle. This is an engineering
+estimate, not a measured effort claim. The existing comparison script requires
+authorized/denied access, two distinct actors, and an attributable scoped test write
+in the actual deployment before considering authentication proven.

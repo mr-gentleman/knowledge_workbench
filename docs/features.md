@@ -33,6 +33,36 @@ Standing engineering philosophy and coding instructions: [AGENTS.md](../AGENTS.m
 5. **Process:** independent review required for persistence, identity, security and serving changes only;
    enforce merges with branch protection + a required test check wherever the repo settles (GitHub or GitLab).
 
+### Architecture direction — 2026-10-22
+
+#chris, recorded by #codex: **Streamlit MVP; frontend-independent Python application
+logic; React and hosting evaluated later.** Apply the existing UI/service/repository
+boundaries during feature work, with explicit operation inputs/results and trusted actor
+context. No speculative API, second frontend, or wholesale refactor in V1. Evaluate the
+representative metric/PI editing workflow before deciding whether React is warranted.
+A future transition may briefly support both UIs, but only after cross-instance save,
+permission, retry, and audit invariants are verified. Company React hosting is not presumed
+suitable; inspect its controls alongside a possible custom Snowpark Container Services
+deployment. This does not change the pre-SME hardening order above.
+
+Rationale and implementation guidance:
+[DEC-008](decisions.md#dec-008--streamlit-mvp-with-frontend-independent-application-logic).
+This is architecture guidance, not a claim that portability or a second deployment is implemented.
+
+### Authoring MVP and subsequent React comparison — 2026-10-22
+
+#chris: continue the Streamlit authoring MVP first, including imported existing
+metrics, metric identity plus multiple PIs, a separate fact-table editing workspace,
+and sidebar discovery/search across the two areas. Then compare a bounded React
+implementation using the same representative data and workflows; production
+Oracle cutover is not a prerequisite. Preserve the pre-SME hardening gates.
+
+Acceptance script and navigation guidance (shared candidate/canon discovery is now agreed in DEC-010):
+[app-design-notes.md — MVP comparison requirements](app-design-notes.md#mvp-comparison-requirements--2026-10-22).
+Existing work remains tracked by UX-01–04, FIND-01–02, SERVE-02, CHECK and LIFE items;
+this adds no second status tracker or immediate React implementation task.
+See DEC-009 for sequencing and scope.
+
 ## Next sprint / six-step delivery plan
 
 Product priorities from **#chris**; sequencing and refinements by **#codex**, recorded 2026-10-21. This replaces the earlier five-step ordering. These steps organize the existing task IDs; they are not a second status tracker or a claim that the work is complete.
@@ -123,10 +153,10 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 
 | ID | Status | Priority / scope | Task and acceptance check | Origin / evidence |
 |---|---|---|---|---|
-| FIND-01 | TODO | P2 / V1 | Browse/search both candidates and canonical metrics. Clearly distinguish status; selecting a result opens the appropriate metric workspace. | #existing #chris — planned feature |
+| FIND-01 | TODO | P2 / V1 | Shared candidate/canon discovery and metric workspace, with obvious status badges. Default results include open candidates and active canon; hide rejected/promoted candidates and retired records unless explicitly included. Promoted candidates link to their canonical result. | #existing #chris #codex — direction confirmed 2026-10-22, DEC-010/011 |
 | FIND-02 | TODO | P2 / V1 | Search name, description, and disambiguation; add typo tolerance with ranked results. Show enough definition context to recognize an existing metric before creating another. Name-only substring search already exists. | #existing #chris — planned extension |
 | FIND-03 | TODO | P3 / Next | Add semantic search and duplicate suggestions using the same matcher. Warn without blocking; show the matching definition, not an invented duplicate probability. | #existing — planned feature |
-| FIND-04 | TODO | P3 / Next | Filter by department and lifecycle status. | #existing — planned feature |
+| FIND-04 | TODO | P2 / V1 | Compose department (e.g. Finance), candidate/canon, and closed/retired filters with text search; provide clear/reset. Collapsible department groups are optional presentation, not a required folder hierarchy. Default filter remains open. | #existing #chris #codex — advanced from Next, 2026-10-22; DEC-010/011 |
 | FIND-05 | TODO | P3 / Later | Add tag-based browse filters only when a defined tag workflow and consumer exist. | #existing — deferred |
 
 ## Entry / editing UX
@@ -154,10 +184,11 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | ID | Status | Priority / scope | Task and acceptance check | Origin / evidence |
 |---|---|---|---|---|
 | LIFE-01 | TODO | P2 / V1 | Promote candidate → canon atomically: enforce readiness, mint metric ID, attach PIs while preserving origin, record history, and initialize serving pointers appropriately. Repeated promotion cannot mint multiple canon records. | #existing — planned feature |
-| LIFE-02 | TODO | P2 / V1 | Reject candidate with reason and optional duplicate_of_metric_id. Direct the user to the existing canon when applicable. | #existing — planned feature |
+| LIFE-02 | TODO | P2 / V1 | Reject candidate with reason and optional duplicate_of_metric_id; link existing canon when applicable. Use this for test/junk candidates (reason: Test data), hiding them by default while preserving content/history and explicit closed-record discovery. Rejection is audited; no hard deletion. | #existing #chris #codex — clarified 2026-10-22, DEC-011; no cleanup executed |
 | LIFE-03 | TODO | P2 / V1 | Edit canon directly after promotion; retire canon/PIs with reason and appropriate replacement linkage. Retired content must not be served. Preserve the agreed schema distinction: superseded_by is currently on canon, not PI. | #existing — planned feature |
 | LIFE-04 | TODO | P3 / Later | Add merge tooling only after the basic lifecycle is established. | #existing — deferred |
 | LIFE-05 | TODO | P2 / V1 | Canon name uniqueness + routed duplicate flow (DEC-006). Settle name normalization; refuse promotion or a canon rename onto a name used by another active canonical metric; on a match, offer Same metric → edit canon pre-filled / Different → distinct name + disambiguation / Not sure → candidate with promotion blocked. Candidates keep warnings only. | #claude #chris — decided 2026-10-21 |
+| LIFE-06 | TODO | P2 / V1 | Support active/retired fact-table knowledge with audited reason and explicit retired-record discovery. Before implementing retirement, decide how dependent PIs/readiness/serving react; do not silently cascade. Preserve existing schema; no independent is_deleted flag. | #chris #codex — DEC-011; dependency policy remains open |
 
 ## History / attribution UX
 
@@ -180,6 +211,12 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | SERVE-02 | TODO | P2 / V1 | Import five representative metrics first, then complete the one-time legacy migration with ID translation and source-table normalization. Remap dependent evaluation/exemplar references. Follow open-items.md. | #existing — planned feature |
 | SERVE-03 | TODO | P2 / V1 | Test Oracle configuration against the new dictionary and representative questions before cutover. | #existing — planned verification |
 | SERVE-04 | TODO | P2 / V1 | Write and exercise cutover/rollback procedure before retiring Sheets. | #existing — planned procedure |
+
+## Future stewardship / needs attention
+
+| ID | Status | Priority / scope | Task and acceptance check | Origin / evidence |
+|---|---|---|---|---|
+| STEW-01 | TODO | P3 / Later | Design an evidence-backed view of what works, what fails, and what needs work: candidate review, positive/negative feedback, confusability, usage, recent additions, quality findings, and popular reports/questions lacking suitable knowledge. Link to existing editors; extend to dimensions later. Distinguish missing knowledge from retrieval failures and keep approval, popularity, and correctness separate. Placement, evidence model, grades, and prioritization remain open. | #chris #codex — future direction 2026-10-22, DEC-010; no feedback integration implied for V1 |
 
 ## Build / deployment / access
 

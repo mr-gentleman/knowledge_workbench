@@ -174,3 +174,140 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   PIs, revision-bound validation, restore drills.
 - Related: REL-08..REL-12, PLAT-04, PLAT-05, HIST-06, REL-07.
 
+## DEC-008 — Streamlit MVP with frontend-independent application logic
+
+- Date: 2026-10-22. Origin: #chris, summarized by #codex.
+- Status: direction agreed with #chris in conversation; documentation proposed for merge.
+- Context: the Workbench is a collaborative authoring and adjudication app, not only a
+  reporting surface. Related-record editing, SQL inspection, navigation, retained drafts,
+  and conflict handling may eventually justify React. Preserve the MVP investment without
+  building speculative infrastructure or delaying the pre-SME hardening plan.
+- Decision:
+  - **V1 stays Streamlit.** Prove a representative metric workspace: inspect identity and
+    PIs, edit related knowledge, validate/review, and save safely under concurrent edits.
+    Revisit React if actual workflows repeatedly fight reruns, navigation, or editing state.
+    React is a likely future option, not a committed rewrite or a V1 release dependency.
+  - **Keep application logic frontend-independent.** Pages own widgets, navigation, feedback,
+    and per-user drafts/baselines. Ordinary Python services own validation, authorization
+    decisions, workflow transitions, and save orchestration. Repositories own parameterized
+    SQL, conditional updates, transactions, and history persistence. Keep one authoritative
+    implementation of each business rule; no SQL or policy duplicated in UI handlers.
+  - **Make operation boundaries explicit.** Pass record IDs, intended changes, expected
+    revisions, and verified actor context; return committed IDs/revisions and recognizable
+    outcomes (including conflict, validation failure, and uncertain save). Services must not
+    depend on Streamlit widgets, reruns, or session state. Isolate framework-specific identity
+    and connection acquisition at the adapter boundary; evolve existing modules only when
+    touched for a concrete need, rather than starting a wholesale refactor.
+  - **Identity is trusted context, not form data.** Today obtain the actor from verified
+    `st.user`; a future API must derive it from its authenticated request/session, never
+    trust a browser-supplied username. Enforce applicable permissions in application
+    operations, not just button visibility. Preserve DEC-007's owner-rights writes, human
+    attribution, query tags, and operation logging; shared service credentials alone do
+    not provide individual attribution.
+  - **No API or second frontend solely for portability.** Streamlit can call Python services
+    directly now. A future authenticated Python API can expose those same operations to
+    React. Do not add generic interfaces, pass-through wrappers, a custom auth system, or a
+    synchronization framework for hypothetical clients.
+  - **Temporary coexistence is an option, not current scope.** Before enabling two writers,
+    prove compatible permissions, revision checks, retry/idempotency behavior, atomic
+    record/history writes, and audit semantics across both. Sharing code is insufficient.
+    Process-local locks protect the shared connection within their process; they do not
+    coordinate independent app instances. Follow DEC-007's exclusive connection-leasing
+    direction when needed and verify cross-instance database correctness before rollout.
+  - **Frontend and hosting are separate decisions.** Current Streamlit-in-Snowflake container
+    runtime remains the MVP target. A custom React/API deployment on Snowpark Container
+    Services is a candidate, not already selected or equivalent to the current deployment.
+    Compare it with company hosting on authenticated identity, scoped write permissions,
+    attributable operations, inspectable configuration/code/logs, deployment and recovery
+    control, and maintenance ownership.
+- Hosting rationale: #chris reports that the existing company React platform uses a shared
+  read-only Snowflake service account for freehand SQL without individual attribution and has
+  limited configuration transparency. These are reported constraints, not an audit performed
+  here. Do not assume that platform fits Workbench writes merely because it hosts React.
+  A shared account can be appropriate with application authorization and auditing; adopting
+  custom hosting also means owning its operational maintenance.
+- Alternatives: rewrite in React now (premature before proving workflows); couple rules to
+  Streamlit (costly migration and duplicated rules later); build an API and two UIs now
+  (unnecessary V1 complexity); automatically adopt company hosting (controls unverified).
+- Consequences: preserve the existing schema/lifecycle decisions and hardening order. Apply
+  these boundaries incrementally during feature work. React/hosting evaluation is deferred;
+  no runtime code, grants, schema, deployment, or migration is changed by this decision.
+- Related: AGENTS.md architecture boundaries; docs/features.md plan of record; DEC-001,
+  DEC-002, DEC-007; REL-08–12, PLAT-03–05; technical build plan steps 3 and 5.
+
+## DEC-009 — Establish the Streamlit authoring MVP, then compare React
+
+- Date: 2026-10-22. Origin: #chris; recorded by #codex.
+- Status: sequence and scope requested in conversation; documentation proposed for merge.
+- Context: the framework comparison needs real knowledge and related editing workflows,
+  not a generic form demo. Refines DEC-008's evaluation timing without changing its boundaries.
+- Decision: continue Streamlit first with imported metrics, a metric/PI workspace,
+  a separate fact-table workspace, and sidebar discovery/search. Then run a bounded
+  React comparison against that authoring baseline, initially about two days.
+  Production Oracle cutover is not a prerequisite.
+- Open UX choices: candidate/canon navigation, default discovery filter, PI layout,
+  save scope and draft behavior, and any separate implementations browser. The
+  proposals in app-design-notes.md are hypotheses, not accepted user decisions.
+- Alternatives: rewrite immediately; complete Oracle cutover before evaluating;
+  compare only mock forms. These either disrupt current progress or poorly test
+  the intended authoring experience.
+- Consequences: retain existing hardening, import, validation and promotion rules.
+  Full AI intake/adjudication remains future scope. Record observed UX, latency,
+  change effort, and deployed authentication/attribution evidence before choosing.
+- Related: UX-01–04, FIND-01–02, SERVE-02; docs/app-design-notes.md comparison requirements.
+
+## DEC-010 — Shared metric discovery with a future stewardship view
+
+- Date: 2026-10-22. Origin: #chris, summarized by #codex.
+- Status: direction agreed in conversation; documentation proposed for merge.
+- Decision: candidates and canon share metric discovery and the detail workspace,
+  with obvious labels and optional filtering. This settles that part of DEC-009's
+  open navigation question. Keep a separate fact-table workspace and PIs within
+  their metric; a separate PI browser remains deferred.
+- V1: search plus department and lifecycle filtering. Candidate review distinguishes
+  unfinished SME contributions, failing checks, and proposals awaiting human review.
+  Source/provenance, readiness, lifecycle, and age are separate dimensions; do not
+  create a lifecycle status for each reason work needs attention.
+- Later direction: expose what works, what fails, and what to do next using positive/
+  negative feedback, confusability, usage, new knowledge, quality findings, and
+  frequently used reports/questions lacking suitable metrics. Extend to dimensions
+  when that domain is implemented. A Needs attention view should link to the same
+  editors, not duplicate them. Its placement (separate destination or overlay),
+  scoring, prioritization, and evidence model remain open.
+- Rationale: users should not need to know storage tables or lifecycle state before
+  finding a metric. Stewardship adds actionable evidence beyond a passive catalog.
+  Canonical status, popularity, and correctness must not be conflated.
+- Alternatives/deferred: mandatory separate candidate/canon screens; literal folder
+  ownership; immediate quality dashboards. Department folders are an optional browse
+  presentation, not a decision to add a hierarchy or multi-department schema now.
+- Related: FIND-01/04, UX-01/02/04, STEW-01; app-design-notes.md discovery guidance.
+
+## DEC-011 — Preserve history; hide rejected and retired records by default
+
+- Date: 2026-10-22. Origin: #chris, clarified by #codex.
+- Status: direction agreed in conversation; documentation proposed for merge.
+- Context: test candidates clutter discovery. Clarify the existing history/lifecycle
+  design rather than introduce another deletion mechanism.
+- Decision: current records remain mutable; committed content changes append complete
+  revision snapshots atomically. This is not an insert-only current-state model or a
+  new event-sourcing architecture. Preserve prior snapshots and attribution.
+- Candidates remain open/promoted/rejected. Reject unwanted/test candidates with a
+  reason (e.g. Test data); preserve duplicate linkage when applicable. Promoted
+  candidates leave the review queue and retain a link to the resulting canon.
+- Canon metrics, PIs, and fact-table knowledge remain active/retired. Retire obsolete
+  entries with a reason; use replacement links where the schema supports them.
+  Do not add an independent is_deleted flag, archive status, or hard-delete UI in V1.
+- Default browsing/search hides rejected/promoted candidate records and retired
+  knowledge. An explicit include-closed/retired control exposes them for inspection.
+  The active canonical result remains visible after promotion.
+- Retirement must affect eligibility as well as visibility: retired canon and PIs
+  cannot be served, including fallback to older passing revisions. Define dependent
+  PI handling for fact-table retirement before implementation; do not silently
+  cascade or assume hiding a table withdraws its consumers.
+- Rationale: clear lifecycle actions remove clutter while preserving lineage and
+  recovery. A separate deletion flag introduces contradictory state combinations.
+  Newness comes from dates; incomplete/blocked comes from readiness, not new statuses.
+- Consequences: test candidate cleanup uses normal audited rejection; no records
+  are changed by this documentation. Restoration is a new audited change (HIST-04),
+  subject to applicable identity/validation gates, never history rewriting.
+- Related: LIFE-02/03/06, HIST-04, FIND-01/04; Oct-16 handoff lifecycle decisions.
