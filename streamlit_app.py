@@ -45,8 +45,13 @@ rows = repo.list_candidates(search)
 labels = {r["CANDIDATE_ID"]: f"#{r['CANDIDATE_ID']} · {r['FULL_NAME']}" for r in rows}
 # A just-created candidate opens on the next run. The radio's value can only be
 # set before the widget renders, so the create flow parks the id here and reruns.
-if st.session_state.get("just_created") in labels:
-    st.session_state["selected_candidate"] = st.session_state.pop("just_created")
+# Always consume it: if a search filter hides the new record, a leftover id would
+# yank the selection to it later, when the search is cleared.
+just_created = st.session_state.pop("just_created", None)
+if just_created in labels:
+    st.session_state["selected_candidate"] = just_created
+elif just_created is not None:
+    st.sidebar.info(f"Saved as #{just_created} — clear the search to see it.")
 selected = st.sidebar.radio(
     "Candidates", [None, *labels],
     format_func=lambda cid: "➕ New metric" if cid is None else labels[cid],

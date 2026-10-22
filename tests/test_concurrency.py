@@ -94,7 +94,9 @@ class CreateTests(unittest.TestCase):
             return cid
         by_id = lambda cid: next((copy.deepcopy(r) for r in self.rows if r['CANDIDATE_ID'] == cid), None)
         patches = [patch('app.db.viewer', return_value='tester'),
-                   patch.object(repo, 'list_candidates', side_effect=lambda search: copy.deepcopy(self.rows)),
+                   patch.object(repo, 'list_candidates', side_effect=lambda search: [
+                       copy.deepcopy(r) for r in self.rows
+                       if search.lower() in r['FULL_NAME'].lower()]),
                    patch.object(repo, 'get_candidate', side_effect=by_id),
                    patch.object(repo, 'history', return_value=[]),
                    patch.object(repo, 'find_by_exact_name', return_value=[]),
@@ -115,6 +117,17 @@ class CreateTests(unittest.TestCase):
         self.assertNotIn('new:full_name', [w.key for w in self.app.text_input])
         self.app.run()  # a later rerun must not create anything again
         self.assertEqual(self.inserts, [1])
+
+    def test_create_hidden_by_search_does_not_jump_later(self):
+        self.app.sidebar.text_input[0].set_value('zzz').run()
+        self.app.text_input(key='new:full_name').set_value('Fresh metric')
+        next(b for b in self.app.button if b.label == 'Save').click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.inserts, [1])
+        self.assertIn('Saved as #1', self.app.sidebar.info[0].value)
+        self.assertNotIn('just_created', self.app.session_state)
+        self.app.sidebar.text_input[0].set_value('').run()  # clear the search
+        self.assertIsNone(self.app.sidebar.radio[0].value)  # no surprise jump
 
 
 class TransactionTests(unittest.TestCase):
