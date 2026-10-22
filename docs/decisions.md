@@ -234,3 +234,24 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   no runtime code, grants, schema, deployment, or migration is changed by this decision.
 - Related: AGENTS.md architecture boundaries; docs/features.md plan of record; DEC-001,
   DEC-002, DEC-007; REL-08–12, PLAT-03–05; technical build plan steps 3 and 5.
+
+## DEC-009 — Establish the Streamlit authoring MVP, then compare React
+
+- Date: 2026-10-22. Origin: #chris; recorded by #codex.
+- Status: sequence and scope requested in conversation; documentation proposed for merge.
+- Context: the framework comparison needs real knowledge and related editing workflows,
+  not a generic form demo. Refines DEC-008's evaluation timing without changing its boundaries.
+- Decision: continue Streamlit first with imported metrics, a metric/PI workspace,
+  a separate fact-table workspace, and sidebar discovery/search. Then run a bounded
+  React comparison against that authoring baseline, initially about two days.
+  Production Oracle cutover is not a prerequisite.
+- Open UX choices: candidate/canon navigation, default discovery filter, PI layout,
+  save scope and draft behavior, and any separate implementations browser. The
+  proposals in app-design-notes.md are hypotheses, not accepted user decisions.
+- Alternatives: rewrite immediately; complete Oracle cutover before evaluating;
+  compare only mock forms. These either disrupt current progress or poorly test
+  the intended authoring experience.
+- Consequences: retain existing hardening, import, validation and promotion rules.
+  Full AI intake/adjudication remains future scope. Record observed UX, latency,
+  change effort, and deployed authentication/attribution evidence before choosing.
+- Related: UX-01–04, FIND-01–02, SERVE-02; docs/app-design-notes.md comparison requirements.
