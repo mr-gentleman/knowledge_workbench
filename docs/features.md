@@ -33,6 +33,16 @@ Standing engineering philosophy and coding instructions: [AGENTS.md](../AGENTS.m
 5. **Process:** independent review required for persistence, identity, security and serving changes only;
    enforce merges with branch protection + a required test check wherever the repo settles (GitHub or GitLab).
 
+## Plan of record — 2026-10-23 (legacy import during UX; canon health)
+
+**#chris decided; recorded by #claude.**
+
+- **Import legacy content during the UX phase, not after it.** The full legacy set, not just five, enters as
+  **candidates**. They are SME-authored, so original authorship is preserved, and they go through the same gate as any
+  candidate (no auto-canon). Real volume shapes organization: list, departments, search and duplicates (SERVE-02).
+- **Broken canon goes offline.** Canon whose served SQL stops working (SQL error, or a base table changed under it)
+  is withdrawn from serving until fixed and re-passed. It is never served broken (CHECK-06; amends SERVE-01).
+
 ## Next sprint / six-step delivery plan
 
 Product priorities from **#chris**; sequencing and refinements by **#codex**, recorded 2026-10-21. This replaces the earlier five-step ordering. These steps organize the existing task IDs; they are not a second status tracker or a claim that the work is complete.
@@ -147,7 +157,8 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | CHECK-02 | TODO | P2 / V1 | Show computed readiness: description present, at least one currently passing PI, and valid active source-table linkage. Explain why Promote is unavailable. | #existing — planned feature |
 | CHECK-03 | TODO | P2 / V1 | Enforce PI source_table matching an active fact_table_core entry at the required gate, using the agreed three-part name. | #existing — planned feature |
 | CHECK-04 | VERIFY | P2 / V1 | Verify exact-name duplicate warnings across open candidates and active canon, excluding the edited candidate itself. Warnings remain nonblocking. | #existing — implementation present |
-| CHECK-05 | TODO | P3 / Later | Schedule revalidation to detect SQL that becomes invalid after upstream changes. | #existing — deferred |
+| CHECK-05 | TODO | P2 / V1 (before serving) | Schedule revalidation to detect SQL that becomes invalid after upstream changes. Folded into CHECK-06 for served PIs; candidates can stay on-demand. | #existing — deferred; #chris 2026-10-23 — required for serving |
+| CHECK-06 | TODO | P1 / V1 (before serving) | **Canon health: broken canon goes offline.** Re-run each served PI's served revision on a schedule (and before each publish). On a failure (SQL error, missing/renamed column, changed base table), withdraw that metric from DICTIONARY, unless another of its PIs still passes. Never serve SQL whose latest check failed: "last passing" means *passing now*, not "passed once". Show `✗ Offline · served SQL failed check · <time>` on the metric page and list, with the error. It comes back only after an edit passes (or a re-check passes, if the base table recovered). Optional, cheap: store the source table's column fingerprint with each pass to flag silent schema drift even when the SQL still runs. Acceptance: break a served PI's base table in a test schema → next check marks it offline and the next publish omits it; fix it → it is served again; every transition is in history/op_log. | #chris 2026-10-23 — recorded by #claude |
 
 ## Lifecycle
 
@@ -176,8 +187,8 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 
 | ID | Status | Priority / scope | Task and acceptance check | Origin / evidence |
 |---|---|---|---|---|
-| SERVE-01 | TODO | P2 / V1 | Build DICTIONARY consumables from each eligible PI's served_revision_no snapshot, not the live draft row. A broken edit leaves the previous passing implementation served; a new pass advances it. | #existing — planned feature |
-| SERVE-02 | TODO | P2 / V1 | Import five representative metrics first, then complete the one-time legacy migration with ID translation and source-table normalization. Remap dependent evaluation/exemplar references. Follow open-items.md. | #existing — planned feature |
+| SERVE-01 | TODO | P2 / V1 | Build DICTIONARY consumables from each eligible PI's served_revision_no snapshot, not the live draft row. A broken edit leaves the previous passing implementation served; a new pass advances it. Eligible also requires that the served revision's *latest* check passed (CHECK-06); otherwise the metric is offline. | #existing — planned feature |
+| SERVE-02 | TODO | P2 / V1 | Import five representative metrics first, then complete the one-time legacy migration with ID translation and source-table normalization. Remap dependent evaluation/exemplar references. Follow open-items.md. **2026-10-23 #chris:** run the full import as candidates during the UX phase, so real volume informs organization. They are gated like any candidate; original authorship is kept. | #existing — planned feature |
 | SERVE-03 | TODO | P2 / V1 | Test Oracle configuration against the new dictionary and representative questions before cutover. | #existing — planned verification |
 | SERVE-04 | TODO | P2 / V1 | Write and exercise cutover/rollback procedure before retiring Sheets. | #existing — planned procedure |
 
