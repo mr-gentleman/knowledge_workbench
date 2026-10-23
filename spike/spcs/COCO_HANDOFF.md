@@ -55,7 +55,10 @@ If `--create` fails on the system pool, have CoCo create the fallback pool, then
 > The Knowledge Workbench spike service `AI_PLATFORM.WORKBENCH.KW_SPIKE` is deployed. Do the following:
 >
 > ```sql
-> GRANT SERVICE ROLE AI_PLATFORM.WORKBENCH.KW_SPIKE!KW_USER TO ROLE GLEAN_QUERY_SNOWFLAKE_ROLE;
+> -- App access = membership in one plain account role. No in-app permissions: whoever gets in can do everything.
+> CREATE ROLE IF NOT EXISTS WORKBENCH_USER COMMENT = 'People who may open the Knowledge Workbench';
+> GRANT SERVICE ROLE AI_PLATFORM.WORKBENCH.KW_SPIKE!KW_USER TO ROLE WORKBENCH_USER;
+> GRANT ROLE WORKBENCH_USER TO USER CLENZINI;   -- add SMEs the same way later
 > SELECT SYSTEM$GET_SERVICE_STATUS('AI_PLATFORM.WORKBENCH.KW_SPIKE');
 > SHOW ENDPOINTS IN SERVICE AI_PLATFORM.WORKBENCH.KW_SPIKE;            -- report ingress_url
 > SELECT SYSTEM$GET_SERVICE_LOGS('AI_PLATFORM.WORKBENCH.KW_SPIKE', 0, 'web', 50);

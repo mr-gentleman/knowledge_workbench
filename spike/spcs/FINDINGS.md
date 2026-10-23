@@ -32,6 +32,14 @@ t.sort((a,b)=>a-b); console.log('search ms', t, 'p50', t[3], 'max', t[6]);
 ```
 Design note for FE-02: every database call shares one connection behind a process-wide lock (DEC-007). Keystroke searches therefore queue behind each other and behind saves. If the measured p50 is borderline, the fix is a client-side debounce, or filtering the already-loaded list (≤ 200 rows) in the browser. That isn't a reason to fail the gate.
 
+## Access model (agreed with Chris, 2026-10-23): as simple as possible
+
+- **Login:** Snowflake's own SSO on the public endpoint. We build no auth.
+- **Who:** the attributed user is the Snowflake login name from `Sf-Context-Current-User` (e.g. `CLENZINI`), the same value the SiS app already writes to `updated_by`.
+- **Gate:** one account role, `WORKBENCH_USER`, holds the service role `KW_USER`. Add a person by granting them `WORKBENCH_USER`.
+- **Inside the app:** no permissions. Anyone who gets in can do everything. Data access is the service's own role (`WORKBENCH_APP`), so users need no table grants.
+- **Live check:** does ingress honor `WORKBENCH_USER` as a *secondary* role, or only as the user's default role? If only the default role, users would need `DEFAULT_SECONDARY_ROLES = ('ALL')` (Snowflake's current default) or a different grant path.
+
 ## What was built (`spike/spcs/`)
 
 - `web/`: Vite + React 18 port of the mockup artifact (CodeMirror 5 editor, IBM Plex/Instrument Serif fonts). Everything is bundled; nothing loads from a CDN. Canon entries are still sample data. **Candidates are live:** the list reads `AI_PLATFORM.WORKBENCH.metric_candidate`, opening one loads a fresh baseline, and **Save** edits name, category, description and when-to-use through the API. Toasts show round-trip ms.
