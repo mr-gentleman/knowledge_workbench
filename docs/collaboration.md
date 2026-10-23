@@ -44,6 +44,9 @@ it. Release the claim (back to `TODO`) if you stop.
 - The author fixes on the same branch or replies why not. Disagreements go to Chris
   in the PR, not into silent edits.
 - Neither agent edits the other's open branch without being asked.
+- Astra review of Claude's branches runs through `scripts/review.sh`: mid/high-risk only,
+  one call per branch, Chris approves each run (AGENTS.md → Astra reviews). Low-risk
+  branches go straight to Chris.
 
 **5. Decisions are append-only.** `docs/decisions.md` entries are never rewritten by
 the other agent — not even "fixed". To disagree: add a new entry that supersedes it

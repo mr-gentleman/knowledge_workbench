@@ -52,6 +52,8 @@ new dependencies and abstraction layers; remove superseded code.**
 - **Every database call goes through `db.locked_session()`** (or `db.query`, which uses it): it holds
   `db_lock` and refuses work on a connection that isn't proven clean (DEC-007, DEC-008). A test fails
   if anything else calls `session()`.
+- Health readout: `scripts/health.sh` (size, complexity, lint, tests, feature counts, change since
+  last run). Paste its delta into the PR template's "Health delta" section.
 - Schema changes: add a new numbered file in `sql/`; never edit a shipped one.
 - **Fully qualify every object name** (`AI_PLATFORM.WORKBENCH.op_log`) in migrations, handoffs and
   ad-hoc SQL. Never rely on `USE` — it silently doesn't take in some tools (CoCo, 2026-10-23).
@@ -129,6 +131,20 @@ handling, promotion, serving of last-passing revisions, and rollback.
   - Summaries, not diffs: no file lists, no commit-by-commit. Unknown = write "not recorded",
     never guess. On a merge conflict in this file, keep both rows.
   Optional: `git config core.hooksPath .githooks` prints a reminder when it's missing; it never blocks.
+- **Astra reviews: ask Chris first, every time; one call, no ping-pong.** Each run costs
+  Snowflake credits. Before running `scripts/review.sh <branch> --yes`, show Chris the
+  branch, the dry-run size (`scripts/review.sh <branch>` without `--yes`) and why it needs
+  review, then wait for "go ahead". Approval covers that one run only. Review mid/high-risk
+  branches only (PR template tiers), once, when the branch is finished. Afterwards the author
+  fixes confirmed findings and answers the rest in the review file; disagreements go to Chris.
+  No second Astra pass unless Chris asks for one.
+- **Which model, where:** Claude Code (Opus) implements, runs read-only SQL and deploys via the
+  `snow` CLI. **DDL, grants and unusual SQL go to Chris as a pasteable handoff for CoCo on Opus**
+  (exact statements, role, how to verify). Astra is for high-order review only (`scripts/review.sh`).
+- **Hand-off to Chris closes every branch:** after fixes, write the PR description from the
+  template: "Where this fits" (milestone, problem answered, what it unblocks), then Chris's
+  checklist — only items worth his time as first user (read / try / decide), else "Nothing
+  for you this time" — and what is not verified.
 - Never commit secrets — `.gitignore` excludes `*secret*`, `.env`, `.snowflake/`.
 - Record meaningful architecture/code decisions in [docs/decisions.md](docs/decisions.md):
   date, origin, context, rationale, alternatives, consequences; link tasks and commits.
