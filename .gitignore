@@ -8,3 +8,4 @@ output/
 
 # local secrets
 *secret*
+__pycache__/

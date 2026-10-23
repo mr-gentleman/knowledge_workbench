@@ -32,7 +32,7 @@ GRANT USAGE, MONITOR ON COMPUTE POOL KW_SPIKE_POOL TO ROLE WORKBENCH_APP;
 --    Needs MANAGE CALLER GRANTS (ACCOUNTADMIN has it).
 GRANT CALLER USAGE ON WAREHOUSE BIZ_AI_WH TO ROLE WORKBENCH_APP;
 
--- 5. After `spike/spcs/deploy.sh --create` (as WORKBENCH_APP): who may open the app.
+-- 5. After `deploy/deploy.sh --create` (as WORKBENCH_APP): who may open the app.
 --    Ingress checks the signed-in user's roles; one plain account role gates the app (see COCO_HANDOFF Part 3).
 -- CREATE ROLE IF NOT EXISTS WORKBENCH_USER; GRANT SERVICE ROLE AI_PLATFORM.WORKBENCH.KW_SPIKE!KW_USER TO ROLE WORKBENCH_USER; GRANT ROLE WORKBENCH_USER TO USER CLENZINI;
 

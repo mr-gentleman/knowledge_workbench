@@ -41,7 +41,7 @@ Three parts. CoCo does 1 and 3 in Snowflake. Part 2 runs on Chris's Mac, because
 The podman machine must be running (`podman machine start` if not). Then:
 
 ```bash
-spike/spcs/deploy.sh --create
+deploy/deploy.sh --create
 ```
 
 Add `KW_POOL=KW_SPIKE_POOL` in front of the command if CoCo created the fallback pool. The script logs in to the registry, builds and pushes the image, creates `AI_PLATFORM.WORKBENCH.KW_SPIKE`, waits for READY, and prints timings and the endpoint URL. Paste the timings into FINDINGS.md (criterion 1). Later deploys run without `--create`.

@@ -11,7 +11,7 @@ object is read or written), one connection
 (`workbench_deploy`, qmark), warehouse BIZ_AI_WH. Rounds are interleaved A,B,C so drift hits
 all variants alike. Then one cold save per variant after > 60 s idle (warehouse auto-suspends).
 
-    python3 spike/spcs/bench/hybrid_bench.py [rounds] [out.json]
+    python3 docs/spikes/spcs/bench/hybrid_bench.py [rounds] [out.json]
 """
 import json
 import random

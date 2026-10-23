@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Spike deploy loop: build React + API image → push → upgrade the service.
-# Needs the objects in handoff.sql (Chris/CoCo) and a running podman machine (or ENGINE=docker). Usage: spike/spcs/deploy.sh [--create]
+# Needs the objects in handoff.sql (Chris/CoCo) and a running podman machine (or ENGINE=docker). Usage: deploy/deploy.sh [--create]
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -11,7 +11,7 @@ REGISTRY=activecampaign-fm00411.registry.snowflakecomputing.com
 REPO_URL=$REGISTRY/ai_platform/workbench/kw_images
 TAG=$(git rev-parse --short HEAD)$(git diff --quiet || echo "-dirty$(date +%s)")
 SPEC=$(mktemp)
-sed "s/IMAGE_TAG/$TAG/" spike/spcs/service.yaml > "$SPEC"
+sed "s/IMAGE_TAG/$TAG/" deploy/service.yaml > "$SPEC"
 
 t0=$(date +%s)
 # `snow spcs image-registry login` shells out to docker; this form works for podman too.
@@ -19,7 +19,7 @@ t0=$(date +%s)
 snow spcs image-registry token -c "$CONN" --format JSON \
   | python3 -c 'import re,sys; print(re.search(r"\{.*\}", sys.stdin.read(), re.S).group(0).replace("\n", ""))' \
   | $ENGINE login "$REGISTRY" --username 0sessiontoken --password-stdin
-$ENGINE build --platform linux/amd64 -f spike/spcs/Dockerfile -t "$REPO_URL/kw-spike:$TAG" .
+$ENGINE build --platform linux/amd64 -f deploy/Dockerfile -t "$REPO_URL/kw-spike:$TAG" .
 $ENGINE push "$REPO_URL/kw-spike:$TAG"
 t1=$(date +%s)
 

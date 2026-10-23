@@ -2,7 +2,8 @@
 async function call(method, path, body, timeoutMs) {
   const t0 = performance.now();
   const res = await fetch(path, {
-    method, signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
+    method,
+    signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });

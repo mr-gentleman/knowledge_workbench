@@ -1,4 +1,3 @@
-import React from 'react';
 import { createRoot } from 'react-dom/client';
 // Bundled, not CDN-loaded: SiS blocks CDN component JS, and an SPCS image shouldn't depend on it either.
 import '@fontsource/ibm-plex-sans/400.css';
