@@ -75,6 +75,21 @@ Pasteable step-by-step for CoCo: [COCO_HANDOFF.md](COCO_HANDOFF.md).
 4. **Live checks (about 30 min):** login, forged-header test, `/api/me` caller's-rights output, one real Save on a `ZZ_*` test candidate. For the save, confirm the `updated_by`, `revision` and `op_log` rows. Then record the deploy-loop timings `deploy.sh` prints.
 5. **Teardown** lines are at the bottom of `handoff.sql`.
 
+## Prior art in this account: Chris's Slackbot (SPCS, Apr–May 2025)
+
+Read-only inspection, 2026-10-23: `TUTORIAL_DB.DATA_SCHEMA.SLACKBOT_SERVICE3` (live spec, grants, EAI, network rule, logs). Source is in `~/Downloads/Chris_Third`, matching image `slackbot3:v2`.
+
+| | Slackbot | Workbench spike |
+|---|---|---|
+| **Ingress** | Public endpoint `slackendpoint:3000`, but it serves only a stub readiness server. Slack traffic arrives through **Socket Mode**, an outbound websocket, so nothing uses the URL. No service role is granted, so no person can open it either. | Public endpoint `ui:8080` is the product: browser → Snowflake login → service role `KW_USER` → React and the API. |
+| **Egress** | External access integration `SLACK_DEBUG_INTEGRATION` with network rule `SLACK_API_RULE` (EGRESS to `slack.com`, `wss-primary.slack.com`, `*.slack.com`, `*.slack-msgs.com` on :443). Slack tokens come from Snowflake **secrets**, mounted as env vars. | **None needed.** Snowflake is reached internally, and fonts and JS are bundled, so there's no network rule, no integration and no secrets. |
+| **Snowflake auth** | `/snowflake/session/token` OAuth, owner's rights as `TEST_ROLE`. The warehouse is hardcoded (`TEAM_DATA_LARGE`). | Same token-file pattern (owner's rights as `WORKBENCH_APP`); the warehouse comes from the spec env. |
+| **Per-user identity** | Slack user ID only; every query runs as `TEST_ROLE`. | `Sf-Context-Current-User` for attribution, plus an optional caller's-rights connection. |
+| **Image** | `python:3.11-slim`, `COPY . .`, which ships every draft and legacy `main*.py`. Unpinned version ranges. | Multi-stage build; copies only `app/`, `api/` and the built `dist/`; pinned versions. |
+| **Activity** | The last 40 log lines are all readiness probes (`GET /` every 5 s). No bot traffic is visible. | n/a |
+
+Takeaways: the token-file connection, the readiness probe and the podman → registry → `CREATE SERVICE` loop are already proven here by Chris. The Workbench is *simpler* on the network side, since it needs no egress at all. What's new is real browser ingress: the login, the service-role gate and identity headers. Those are exactly the unverified live checks above.
+
 ## If it passes: what React-first costs beyond the spike
 - Split `app/db.py` (framework-free core + Streamlit adapter); drop `streamlit` from the image.
 - Session lifecycle: the spike holds one cached owner's-rights session, matching SiS's single shared connection. The SPCS token file rotates. A long-idle session will need reconnect-on-expiry, folded into `_heal`. Not built here.
