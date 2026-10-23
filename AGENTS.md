@@ -53,6 +53,8 @@ new dependencies and abstraction layers; remove superseded code.**
   `db_lock` and refuses work on a connection that isn't proven clean (DEC-007, DEC-008). A test fails
   if anything else calls `session()`.
 - Schema changes: add a new numbered file in `sql/`; never edit a shipped one.
+- **Fully qualify every object name** (`AI_PLATFORM.WORKBENCH.op_log`) in migrations, handoffs and
+  ad-hoc SQL. Never rely on `USE` — it silently doesn't take in some tools (CoCo, 2026-10-23).
 
 ## Architecture boundaries
 
