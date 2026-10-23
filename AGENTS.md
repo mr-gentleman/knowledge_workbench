@@ -124,6 +124,10 @@ handling, promotion, serving of last-passing revisions, and rollback.
   branches only (PR template tiers), once, when the branch is finished. Afterwards the author
   fixes confirmed findings and answers the rest in the review file; disagreements go to Chris.
   No second Astra pass unless Chris asks for one.
+- **Which model, where:** Claude Code (Opus) implements and runs SQL/deploys through the `snow`
+  CLI where permissions allow. Astra is for high-order review only (`scripts/review.sh`). If work
+  must go through CoCo (e.g. Snowflake-side execution Claude Code can't do), run CoCo with
+  Opus, not Astra.
 - **Hand-off to Chris closes every branch:** after fixes, write the PR description from the
   template: "Where this fits" (milestone, problem answered, what it unblocks), then Chris's
   checklist — only items worth his time as first user (read / try / decide), else "Nothing
