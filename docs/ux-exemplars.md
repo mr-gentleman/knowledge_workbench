@@ -545,6 +545,9 @@ criteria is noise. Every score links to its per-item breakdown, and this rubric 
   UI, toast, the "done" feeling), because every editor needed a sign-in or blocked publishing.
   To close it: a signed-in Linear or Notion session by #chris, or a Wikipedia edit from an
   unblocked network (preview only, no publish).
+  **Partly closed 2026-10-23:** #chris approved optimistic save in the React spike. A `Saving`
+  pill with animated dots turns into a green `✓ Saved · rev N` pill, which stays until the next
+  Edit. Treat it as the save-moment pattern unless a later study contradicts it.
 - **Domain analog.** dbt docs demos are offline. Astra's list adds **dbt Catalog** docs,
   **Atlan** (asset profiles), and **Notion** verified wiki pages (trust signals in search).
   Also worth a look: the **DataHub** public demo.
