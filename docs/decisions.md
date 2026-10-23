@@ -186,8 +186,9 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   `db.locked_session()` first runs `ROLLBACK` and `SELECT CURRENT_TRANSACTION()`; only a NULL
   result clears it. Otherwise every operation raises `ConnectionQuarantined` ("Not saved: …"),
   and no new transaction starts. While a failed ROLLBACK may have left a transaction open, nothing
-  else is sent — no op_log INSERT, no `ALTER SESSION` (which can implicitly commit) — and that
-  event is in the app log only.
+  else is sent — no op_log INSERT, no `ALTER SESSION` (which can implicitly commit). Uncertain
+  outcomes are marked dirty before any bookkeeping and reach the app log only. The page catches
+  `ConnectionQuarantined` on every read and offers Retry; drafts survive in session state.
 - Consequences: works in either runtime. Cost: two extra queries on the first operation after a
   failure; none otherwise. A permanently stuck transaction makes the app refuse writes rather than
   commit someone's abandoned change — the safe failure. Not verified live: CURRENT_TRANSACTION()

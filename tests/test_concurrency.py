@@ -16,8 +16,8 @@ class FakeSession:
     """Records every statement. fail: {substring: [exceptions to raise, in order]};
     rows: {substring: result rows}. CURRENT_TRANSACTION() is NULL unless rows say otherwise."""
 
-    def __init__(self, fail=None, rows=None):
-        self.calls, self.tags = [], []
+    def __init__(self, fail=None, rows=None, tag_fail=()):
+        self.calls, self.tags, self.tag_fail = [], [], list(tag_fail)
         self.fail = {k: list(v) for k, v in (fail or {}).items()}
         self.rows = {"CURRENT_TRANSACTION": [[None]], **(rows or {})}
 
@@ -27,6 +27,9 @@ class FakeSession:
 
     @query_tag.setter
     def query_tag(self, value):
+        if value in self.tag_fail:
+            self.tag_fail.remove(value)
+            raise RuntimeError("tag failed")
         self.tags.append(value)
 
     @property
@@ -121,15 +124,44 @@ class TransactionTests(unittest.TestCase):
             repo._in_txn(work, "test.op", "tester", 1)
         self.assertIn("ROLLBACK", s.statements)
         self.assertNotIn("COMMIT", s.statements)
-        self.assertEqual(s.op_log()[0][4], "interrupted")
+        self.assertEqual(s.op_log(), [])  # uncertain → app log only
         self.assertTrue(db.is_dirty())
 
     def test_failed_commit_is_uncertain(self):
         s = FakeSession(fail={"COMMIT": [RuntimeError("lost ack")]})
         with self.assertRaises(RuntimeError):
             self.run_update(s)
-        self.assertEqual(s.op_log()[0][4], "commit_uncertain")
+        self.assertEqual(s.op_log(), [])
         self.assertTrue(db.is_dirty())
+
+    def test_interrupted_bookkeeping_keeps_quarantine_and_the_real_error(self):
+        # Astra 2026-10-23: logging after a failed COMMIT must not bypass quarantine or mask the error.
+        s = FakeSession(fail={"COMMIT": [RuntimeError("lost ack")]})
+        with patch.object(repo.log, "info", side_effect=Interrupt()), \
+                self.assertRaisesRegex(RuntimeError, "lost ack"):
+            self.run_update(s)
+        self.assertTrue(db.is_dirty())
+
+    def test_interrupted_op_log_after_rollback_keeps_the_real_error(self):
+        s = FakeSession(fail={"INTO AI_PLATFORM.WORKBENCH.revision": [RuntimeError("snapshot failed")],
+                              "INTO AI_PLATFORM.WORKBENCH.op_log": [Interrupt()]})
+        with self.assertRaisesRegex(RuntimeError, "snapshot failed"):
+            self.run_update(s)
+
+    def test_stop_request_after_a_successful_save_is_not_swallowed(self):
+        s = FakeSession(fail={"INTO AI_PLATFORM.WORKBENCH.op_log": [Interrupt()]})
+        with self.assertRaises(Interrupt):
+            self.run_update(s)
+        self.assertIn("COMMIT", s.statements)
+        self.assertFalse(db.is_dirty())
+
+    def test_failed_tag_clear_is_retried_not_abandoned(self):
+        s = FakeSession(tag_fail=[""])
+        self.run_update(s)
+        self.assertNotEqual(s.tags[-1], "")  # the clear failed; the op's tag is still set
+        with patch.object(db, "session", return_value=s):
+            repo.list_candidates()
+        self.assertEqual(s.tags[-1], "")  # retried before the next statement
 
     def test_begin_failure_still_rolls_back(self):
         s = FakeSession(fail={"BEGIN": [RuntimeError("begin failed")]})
@@ -292,6 +324,15 @@ class EditorTests(unittest.TestCase):
         self.assertIn('Not saved', self.app.error[0].value)
         self.assertEqual(self.app.text_area[0].value, 'Retained')
 
+    def test_quarantine_on_first_read_shows_retry_not_a_crash(self):
+        with patch.object(repo, 'list_candidates', side_effect=db.ConnectionQuarantined('busy')):
+            self.app.run()
+        self.assertFalse(self.app.exception)
+        self.assertIn('recovering', self.app.error[0].value)
+        self.assertTrue([b for b in self.app.button if b.label == 'Retry'])
+        self.app.run()  # recovered
+        self.assertEqual(self.app.header[0].value, 'Test')
+
     def test_reopening_a_record_shows_saves_made_meanwhile(self):
         # REL-07: leave #1, someone else saves it, come back → their version, no false conflict.
         self.app.sidebar.radio[0].set_value(None).run()
@@ -405,6 +446,38 @@ class CreateTests(unittest.TestCase):
         self.assertEqual(self.inserts, [1])  # same token → the first row, not a second
         self.assertEqual(attempts[0], attempts[1])
         self.assertEqual(self.app.sidebar.radio[0].value, 1)
+
+    def lose_first_ack(self, landed):
+        real = self.insert.side_effect
+
+        def flaky(fields, actor, token):
+            self.insert.side_effect = real
+            if landed:
+                real(fields, actor, token)
+            raise RuntimeError('connection dropped')
+        self.insert.side_effect = flaky
+
+    def test_changed_entries_after_unconfirmed_create_never_replay_the_token(self):
+        # Astra 2026-10-23: the first attempt landed; the user edits and saves again.
+        self.lose_first_ack(landed=True)
+        self.name_input().set_value('First name')
+        self.click_save()
+        with patch.object(repo, 'candidate_for_token', side_effect=lambda t: self.tokens.get(t)):
+            self.name_input().set_value('Second name')
+            self.click_save()
+        self.assertEqual(self.inserts, [1])
+        self.assertEqual(self.app.sidebar.radio[0].value, 1)
+        self.assertIn('did go through as #1', self.app.success[0].value)
+
+    def test_changed_entries_after_a_create_that_did_not_land_save_normally(self):
+        self.lose_first_ack(landed=False)
+        self.name_input().set_value('First name')
+        self.click_save()
+        with patch.object(repo, 'candidate_for_token', side_effect=lambda t: self.tokens.get(t)):
+            self.name_input().set_value('Second name')
+            self.click_save()
+        self.assertEqual(self.inserts, [1])
+        self.assertEqual(self.rows[0]['FULL_NAME'], 'Second name')
 
 
 if __name__ == '__main__':

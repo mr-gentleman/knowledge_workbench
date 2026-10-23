@@ -12,9 +12,9 @@ CREATE TABLE IF NOT EXISTS op_log (
     op              VARCHAR       NOT NULL,   -- candidate.create | candidate.edit | …
     actor           VARCHAR       NOT NULL,   -- trusted viewer (st.user), not the service user
     record_id       VARCHAR,
-    -- committed | replayed (create retry returned the first row) | conflict | rolled_back
-    -- | commit_uncertain | interrupted. (rollback_failed goes to the app log only: the
-    -- connection is quarantined, so this insert would join the abandoned transaction.)
+    -- committed | replayed (create retry returned the first row) | conflict | rolled_back.
+    -- Uncertain outcomes (commit_uncertain, interrupted, rollback_failed) go to the app log
+    -- only: the connection is quarantined first, and this insert could join an abandoned txn.
     outcome         VARCHAR       NOT NULL,
     lock_wait_ms    NUMBER        NOT NULL,   -- time to acquire db_lock (DEC-004's cost, measured)
     duration_ms     NUMBER        NOT NULL,

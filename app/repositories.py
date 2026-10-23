@@ -35,8 +35,9 @@ def _ms(since: float) -> int:
 
 def _in_txn(fn, op: str, actor: str, record_id=None):
     """The only place a transaction starts (DEC-004, DEC-007). fn(execute, meta) runs inside it;
-    it may set meta["record_id"] / meta["replayed"]. One op_log row per attempt, written after
-    the transaction ends, so a rollback can't erase the record of what happened."""
+    it may set meta["record_id"] / meta["replayed"]. Each attempt is logged after the transaction
+    ends, so a rollback can't erase the record: certain outcomes to op_log, uncertain ones
+    (UNCERTAIN) to the app log only, since the connection is then quarantined."""
     op_id, started = uuid.uuid4().hex, time.monotonic()
     meta = {"record_id": record_id, "replayed": False}
     outcome, error = "interrupted", None
@@ -68,19 +69,32 @@ def _in_txn(fn, op: str, actor: str, record_id=None):
             except BaseException as rb:  # noqa: BLE001 — any failure here leaves the outcome unknown
                 outcome = "rollback_failed"
                 exc.add_note(f"ROLLBACK also failed: {rb!r}")
-                mark_dirty()
             raise
         finally:
-            _log_op(s, op_id, op, actor, meta["record_id"], outcome, lock_wait_ms, _ms(started), error)
-            if not is_dirty():  # ALTER SESSION could implicitly commit an abandoned transaction
-                set_tag(s, None)
-            if outcome in ("interrupted", "commit_uncertain"):
-                mark_dirty()  # ROLLBACK ran, but prove the connection clean before anyone reuses it
+            _finish(s, op_id, op, actor, meta["record_id"], outcome, lock_wait_ms, _ms(started), error)
+
+
+UNCERTAIN = ("interrupted", "commit_uncertain", "rollback_failed")
+
+
+def _finish(s, op_id, op, actor, record_id, outcome, lock_wait_ms, duration_ms, error):
+    """Quarantine first, then optional bookkeeping that can neither bypass the quarantine
+    nor replace the operation's own exception."""
+    if outcome in UNCERTAIN:
+        mark_dirty()  # ROLLBACK may have run, but prove the connection clean before reuse
+    try:
+        _log_op(s, op_id, op, actor, record_id, outcome, lock_wait_ms, duration_ms, error)
+        if not is_dirty():  # ALTER SESSION could implicitly commit an abandoned transaction
+            set_tag(s, None)
+    except BaseException as exc:  # bookkeeping must not mask the real outcome
+        if error is None:
+            raise  # the operation succeeded; let e.g. a stop request through
+        log.warning("Bookkeeping for %s failed: %r", op_id, exc)
 
 
 def _log_op(s, op_id, op, actor, record_id, outcome, lock_wait_ms, duration_ms, error):
-    # Never affects the operation's outcome. Skipped on a dirty connection: the INSERT would
-    # join the abandoned transaction and be rolled back with it.
+    # Never affects the operation's outcome. Uncertain outcomes reach the app log only: on a
+    # dirty connection the INSERT could join an abandoned transaction.
     log.info("op %s %s %s record=%s %s wait=%sms total=%sms",
                  op_id, op, actor, record_id, outcome, lock_wait_ms, duration_ms)
     if is_dirty():
@@ -128,6 +142,11 @@ def find_by_exact_name(normalized_name: str):
             WHERE LOWER(TRIM(full_name)) = ? AND status = 'active'""",
         [normalized_name, normalized_name],
     )
+
+
+def candidate_for_token(token: str):
+    rows = query(f"SELECT candidate_id FROM {SCHEMA}.metric_candidate WHERE create_token = ?", [token])
+    return rows[0][0] if rows else None
 
 
 def insert_candidate(fields: dict, actor: str, token: str, source: str = "sme") -> int:

@@ -54,7 +54,6 @@ def _heal(s):
     if open_txn is not None:
         raise ConnectionQuarantined(f"Transaction {open_txn} is still open; try again shortly.")
     _state()["dirty"] = False
-    set_tag(s, None)  # safe now: no transaction is open
     log.warning("Connection recovered after an uncertain transaction.")
 
 
@@ -65,6 +64,8 @@ def locked_session():
         s = session()
         if _state()["dirty"]:
             _heal(s)
+        if _state()["tag"]:
+            set_tag(s, None)  # ops always clear their tag; one still set means that clear failed
         yield s
 
 
@@ -79,8 +80,11 @@ def set_tag(s, tag: dict | None):
         s.query_tag = text
         state["tag"] = text
     except Exception:
-        state["tag_ok"] = False
-        log.exception("QUERY_TAG unavailable; continuing without it.")
+        # Never set successfully → treat as unsupported here and stop trying. Otherwise a
+        # tag may be outstanding: keep state["tag"] so the next locked_session retries the clear.
+        if not state["tag"] and text:
+            state["tag_ok"] = False
+        log.exception("QUERY_TAG update failed")
 
 
 def viewer() -> str:

@@ -27,7 +27,18 @@ def _flash(outcome: services.Outcome):
         st.warning(w)
 
 
-def candidate_form(key: str, current: dict | None = None):
+def guarded(fn, *args):
+    """A quarantined connection stops the page with a retry instead of a crash (DEC-008).
+    Submitted drafts and a pending create live in session state, so they survive."""
+    try:
+        return fn(*args)
+    except ConnectionQuarantined as exc:
+        st.error(f"The database connection is recovering — nothing was saved. {exc}")
+        st.button("Retry")
+        st.stop()
+
+
+def candidate_form(key: str, current: dict | None = None, with_note: bool = True):
     c = current or {}
     with st.form(key):
         full_name = st.text_input("Name *", c.get("FULL_NAME") or "", key=f"{key}:full_name")
@@ -36,7 +47,7 @@ def candidate_form(key: str, current: dict | None = None):
         category = st.text_input("Category", c.get("CATEGORY") or "", key=f"{key}:category")
         description = st.text_area("Description", c.get("DESCRIPTION") or "", height=160, key=f"{key}:description")
         disambig = st.text_area("When to use / how it differs", c.get("DISAMBIG") or "", height=80, key=f"{key}:disambig")
-        note = st.text_input("Change note (optional)", c.get("_NOTE") or "", key=f"{key}:note") if current else None
+        note = st.text_input("Change note (optional)", c.get("_NOTE") or "", key=f"{key}:note") if with_note else None
         submitted = st.form_submit_button("Save", type="primary")
     fields = dict(full_name=full_name, category=category,
                   description=description, disambig=disambig,
@@ -48,7 +59,7 @@ def candidate_form(key: str, current: dict | None = None):
 st.sidebar.title("Knowledge Workbench")
 st.sidebar.caption(f"Signed in as **{viewer()}**")
 search = st.sidebar.text_input("Search metrics")
-rows = repo.list_candidates(search)
+rows = guarded(repo.list_candidates, search)
 if len(rows) == repo.LIST_LIMIT:
     st.sidebar.caption(f"Showing the {repo.LIST_LIMIT} most recently updated — search to narrow.")
 # Stable IDs keep a concurrent rename/reordering from selecting a different record.
@@ -84,9 +95,26 @@ if selected is None:
     # One token per create attempt: a retry (even after a lost acknowledgement) returns
     # the first record instead of inserting again. Rotated, with a fresh empty form,
     # after every successful create (REL-10).
-    create = st.session_state.setdefault("create", {"token": uuid.uuid4().hex, "generation": 0})
-    submitted, fields, _ = candidate_form(f"new-{create['generation']}")
+    create = st.session_state.setdefault(
+        "create", {"token": uuid.uuid4().hex, "generation": 0, "payload": None})
+    pending = create["payload"]  # submitted with this token, outcome not confirmed
+    submitted, fields, _ = candidate_form(
+        f"new-{create['generation']}",
+        {k.upper(): v for k, v in pending.items()} if pending else None, with_note=False)
     if submitted:
+        if pending is not None and pending != fields:
+            # Never replay a token for different content: first find out whether the
+            # unconfirmed attempt landed.
+            prior = guarded(repo.candidate_for_token, create["token"])
+            if prior is not None:
+                create.update(token=uuid.uuid4().hex, generation=create["generation"] + 1, payload=None)
+                st.session_state["just_created"] = prior
+                st.session_state["edit_feedback"] = services.Outcome(
+                    True, f"Your earlier save did go through as #{prior}. It's open now — "
+                          "apply your newer changes here.", prior)
+                st.rerun()
+            # It didn't land, so the token is unused: the new entries can take it.
+        create["payload"] = fields
         try:
             out = services.save_new_candidate(fields, viewer(), create["token"])
         except ConnectionQuarantined as exc:
@@ -99,7 +127,7 @@ if selected is None:
             if out.ok:
                 # Open the new record: the sidebar lists it and the create form is gone,
                 # so a repeat submit can't mint a second candidate (REL-02).
-                create.update(token=uuid.uuid4().hex, generation=create["generation"] + 1)
+                create.update(token=uuid.uuid4().hex, generation=create["generation"] + 1, payload=None)
                 st.session_state["just_created"] = out.record_id
                 st.session_state["edit_feedback"] = out
                 st.rerun()
@@ -107,13 +135,14 @@ if selected is None:
 else:
     editor_key = f"candidate-editor:{selected}"
     if editor_key not in st.session_state:
-        st.session_state[editor_key] = {"baseline": repo.get_candidate(selected), "generation": 0}
+        st.session_state[editor_key] = {"baseline": guarded(repo.get_candidate, selected), "generation": 0}
     elif arrived and "draft" not in st.session_state[editor_key]:
         st.session_state[editor_key]["refresh"] = True
         st.session_state[editor_key]["generation"] += 1
     editor = st.session_state[editor_key]
-    if editor.pop("refresh", False):
-        editor["baseline"] = repo.get_candidate(selected)
+    if editor.get("refresh"):
+        editor["baseline"] = guarded(repo.get_candidate, selected)
+        del editor["refresh"]  # only once it worked, so Retry refreshes too
     # Submission reruns the script. Never refresh this baseline mid-edit (only on arrival,
     # above): it must remain the revision the user actually opened.
     cand = editor["baseline"]
@@ -121,7 +150,7 @@ else:
         st.error("This candidate no longer exists.")
         st.stop()
     if st.button("Reload latest — discard my edits", key=f"reload:{selected}"):
-        editor["baseline"] = repo.get_candidate(selected)
+        editor["baseline"] = guarded(repo.get_candidate, selected)
         editor["generation"] += 1  # New widget keys discard the old form values.
         editor.pop("draft", None)
         editor.pop("draft_note", None)
@@ -168,7 +197,7 @@ else:
     with tab_hist:
         # Tabs all render on every rerun, so history (full JSON snapshots) loads only on request (PLAT-05).
         if st.toggle("Show history", key=f"hist:{selected}"):
-            for h in repo.history("metric_candidate", selected):
+            for h in guarded(repo.history, "metric_candidate", selected):
                 with st.expander(f"rev {h['REVISION_NO']} · {h['ACTION']} · {h['ACTOR']} · "
                                  f"{h['ACTED_AT']:%Y-%m-%d %H:%M}" + (f" — {h['CHANGE_NOTE']}" if h["CHANGE_NOTE"] else "")):
                     if h["SCHEMA_VERSION"] == 1:
