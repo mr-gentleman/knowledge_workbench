@@ -102,6 +102,7 @@ export default function App() {
   const [live, setLive] = useState({ state: 'loading' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [justSaved, setJustSaved] = useState(null); // {rev, ms}: the header's ✓ Saved pill, shown briefly
   const [editing, setEditing] = useState(false); // DEC-020: read mode until Edit; one session per page
 
   const flash = msg => { setToast(msg); setTimeout(() => setToast(''), 2600); };
@@ -166,7 +167,10 @@ export default function App() {
       if (out.status !== 'saved' && out.status !== 'no_change') { setError(out.message); return; }
       const nm = { ...m, rev: out.candidate_revision, updatedBy: out.status === 'saved' ? me?.user : m.updatedBy };
       setData(d => replace(d, nm)); setSaved(s => replace(s, nm)); setEditing(false);
-      flash(out.status === 'saved' ? `Saved ${m.id} · revision ${out.candidate_revision} · ${ms} ms` : `No changes · ${ms} ms`);
+      if (out.status === 'saved') {
+        setJustSaved({ rev: out.candidate_revision, ms });
+        setTimeout(() => setJustSaved(null), 6000);
+      } else flash(`No changes · ${ms} ms`);
       if (out.warnings?.length) setError(out.warnings.join(' '));
     } catch (e) {
       setError(`Save failed: ${e.message}`);
@@ -235,10 +239,11 @@ export default function App() {
             <div className="crumbs">{m.dept} / {m.category || 'Uncategorized'}</div>
             <div className="title">
               <h1>{m.name}</h1>{m.kind === 'canon' ? <span className="badge canon">Canon · #{m.id}</span> : <span className="badge cand">Candidate · {m.id}</span>}
+              {justSaved && <span className="savedpill" role="status"><span className="check">✓</span> Saved · rev {justSaved.rev} · {(justSaved.ms / 1000).toFixed(1)} s</span>}
               {!editing && (
                 <span className="titleactions">
                   {m.kind === 'cand' ? <button className="btn" disabled={missing.length > 0}>Promote to canon</button> : null}
-                  <button className="btn primary" onClick={() => setEditing(true)} disabled={m.live && !m.loaded}>Edit</button>
+                  <button className="btn primary" onClick={() => { setEditing(true); setJustSaved(null); }} disabled={m.live && !m.loaded}>Edit</button>
                 </span>
               )}
             </div>
@@ -282,7 +287,7 @@ export default function App() {
         )}
         {nav === 'metrics' && m && editing && (
           <div className="savebar">
-            <span className="what">{piDirtyLive ? 'The spike UI saves only the definition of a live candidate; the API accepts implementations, but this page does not send them yet.'
+            <span className="what">{busy ? <span className="saving" role="status">Saving changes<span className="dots" aria-hidden="true"><i /><i /><i /></span></span> : piDirtyLive ? 'The spike UI saves only the definition of a live candidate; the API accepts implementations, but this page does not send them yet.'
               : dirty.length ? <>Editing · unsaved changes in <b>{dirty.join(', ')}</b></> : 'Editing · no changes yet'}</span>
             <button className="btn ghost" onClick={cancel} disabled={busy}>Cancel</button>
             <button className="btn primary" onClick={save} disabled={busy || piDirtyLive}>{busy ? 'Saving…' : 'Save changes'}</button>
