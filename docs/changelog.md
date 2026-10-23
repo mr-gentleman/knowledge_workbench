@@ -25,6 +25,7 @@ Refresh when you merge to main or push a new branch. Live list:
 
 | Branch | What it does | Refs | State |
 |---|---|---|---|
+| codex/quality-framework | Lean bottom-up Engineering / UX / Product grades, separate evidence tracks, and initial ungraded scorecard | [Quality framework](quality-framework.md) | Docs only; proposed grading defaults |
 | claude/REL-08-m1-hardening | M1 hardening (see the 2026-10-23 release) | DEC-007, DEC-008 | **Deployed, not merged** |
 | claude/ux-quick-fixes | Discard only on a conflict; search as you type; lighter save; department names | DEC-015..017 | Built on M1; deploy unknown |
 | claude/sql-on-page | Add and edit SQL implementations (PIs) on the candidate page, save per card; run-status wording | UX-01, UX-02 | Built on ux-quick-fixes |

@@ -82,6 +82,13 @@ These are judgment calls, not thresholds. Don't chase line counts, complexity
 scores, or coverage percentages, and don't split functions into meaningless
 wrappers to hit a number.
 
+## Quality scorecard
+
+[docs/quality-framework.md](docs/quality-framework.md) defines the proposed lean
+Engineering / UX / Product scorecard: bottom-up grades with predictive, workshop,
+and live evidence kept separate. Use it for quality reviews; features.md remains
+the action/status backlog. Do not invent baseline grades from missing evidence.
+
 ## Periodic review — on request
 
 When #chris asks (and before Oracle cutover), score the whole codebase on the same
