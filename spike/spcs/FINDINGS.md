@@ -64,6 +64,8 @@ Locally (fake repository), list/open/save round trips took 8–53 ms, with no re
 
 ## What Chris must do or approve (nothing here has been run)
 
+Pasteable step-by-step for CoCo: [COCO_HANDOFF.md](COCO_HANDOFF.md).
+
 1. **Approve the grants in [handoff.sql](handoff.sql)** (ACCOUNTADMIN / CoCo):
    - `CREATE IMAGE REPOSITORY` and `CREATE SERVICE` on `AI_PLATFORM.WORKBENCH`
    - `BIND SERVICE ENDPOINT ON ACCOUNT`, account-level, needed for a browser-reachable endpoint
