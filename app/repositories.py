@@ -114,11 +114,13 @@ def _log_op(s, op_id, op, actor, record_id, outcome, lock_wait_ms, duration_ms, 
 # ── candidates ──────────────────────────────────────────────────────────────
 
 def list_candidates(search: str = ""):
+    """Most recently updated first. The page filters this list as you type; search here
+    only once the list is capped."""
     return query(
-        f"""SELECT candidate_id, full_name, category, status,
+        f"""SELECT candidate_id, full_name, description, disambig, category, status,
                    promoted_metric_id, original_author, updated_by, updated_at
             FROM {SCHEMA}.metric_candidate
-            WHERE ? = '' OR full_name ILIKE '%' || ? || '%'
+            WHERE ? = '' OR (full_name || ' ' || COALESCE(description, '') || ' ' || COALESCE(disambig, '')) ILIKE '%' || ? || '%'
             ORDER BY updated_at DESC
             LIMIT {LIST_LIMIT}""",
         [search, search],

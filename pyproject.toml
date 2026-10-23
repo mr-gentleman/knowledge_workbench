@@ -9,4 +9,6 @@ dependencies = [
     "streamlit[snowflake]==1.66.1",  # pinned to what the live app runs (2026-10-22)
     # SQL editor (chosen 2026-10-22; app/editor_spike.py is its options playground).
     "streamlit-code-editor==0.1.22",
+    # Search as you type (debounced); st.text_input only reports on Enter. Chosen 2026-10-23.
+    "streamlit-keyup==1.0.0",
 ]

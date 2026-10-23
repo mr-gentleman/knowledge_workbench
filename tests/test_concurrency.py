@@ -54,6 +54,12 @@ class Interrupt(BaseException):
     """Stands in for Streamlit's StopException, which escapes `except Exception`."""
 
 
+def keyup_as_text_input(label, value="", key=None, placeholder="", **_):
+    """AppTest can't drive custom components; the search box behaves like a text input."""
+    import streamlit as st
+    return st.text_input(label, value, key=key, placeholder=placeholder)
+
+
 def fresh_state(test):
     db._state.clear()
     test.addCleanup(db._state.clear)
@@ -259,6 +265,7 @@ class EditorTests(unittest.TestCase):
             return self.row['REVISION_NO']
         self.history = Mock(return_value=[])
         patches = [patch('app.db.viewer', return_value='tester'),
+                   patch('st_keyup.st_keyup', keyup_as_text_input),
                    patch.object(repo, 'list_candidates', side_effect=lambda search: [copy.deepcopy(self.row)]),
                    patch.object(repo, 'get_candidate', side_effect=lambda cid: copy.deepcopy(self.row)),
                    patch.object(repo, 'history', self.history),
@@ -281,21 +288,46 @@ class EditorTests(unittest.TestCase):
     def note_value(self):
         return next(t for t in self.app.text_input if t.label.startswith('Change note')).value
 
-    def test_stale_draft_survives_and_reload_discards_it(self):
-        self.row.update(DESCRIPTION='Other editor', REVISION_NO=2)
+    def button(self, prefix):
+        return next((b for b in self.app.button if b.label.startswith(prefix)), None)
+
+    def test_no_discard_action_without_a_conflict(self):
+        self.assertIsNone(self.button('Discard mine'))
+        self.save('Fine')
+        self.assertIsNone(self.button('Discard mine'))
+
+    def conflict(self):
+        self.row.update(DESCRIPTION='Other editor', REVISION_NO=2, UPDATED_BY='gabe')
         self.save('My unsaved draft', note='why I changed it')
-        self.assertTrue(self.app.error)
+        self.assertIn('gabe', self.app.error[0].value)
+        self.assertIn('Changed: Description', self.app.error[0].value)
+        self.assertTrue(next(b for b in self.app.button if b.label == 'Save').disabled)
+
+    def test_stale_draft_survives_and_discard_loads_theirs(self):
+        self.conflict()
         self.assertEqual(self.writes, [])
         self.assertEqual(self.row['DESCRIPTION'], 'Other editor')
         self.assertEqual(self.app.text_area[0].value, 'My unsaved draft')
         self.assertEqual(self.note_value(), 'why I changed it')  # REL-12: note kept with the draft
         self.app.run()
         self.assertEqual(self.app.session_state['candidate-editor:1']['baseline']['REVISION_NO'], 1)
-        next(b for b in self.app.button if b.label.startswith('Reload latest')).click().run()
+        self.button('Discard mine').click().run()
         self.assertEqual(self.app.text_area[0].value, 'Other editor')
+        self.assertIsNone(self.button('Discard mine'))
         self.save('Reconciled')
         self.assertEqual(self.writes, [2])
         self.assertEqual(self.app.session_state['candidate-editor:1']['baseline']['REVISION_NO'], 3)
+
+    def test_keep_my_edits_merges_onto_theirs(self):
+        self.row.update(FULL_NAME='Renamed by gabe', REVISION_NO=2, UPDATED_BY='gabe')
+        self.save('My description')
+        self.button('Keep my edits').click().run()
+        self.assertEqual(self.app.text_area[0].value, 'My description')  # mine kept
+        self.assertEqual(next(t for t in self.app.text_input if t.label == 'Name *').value,
+                         'Renamed by gabe')  # their untouched-by-me field kept
+        self.save('My description')
+        self.assertEqual(self.writes, [2])
+        self.assertEqual(self.row['FULL_NAME'], 'Renamed by gabe')
 
     def test_success_refresh_and_noop(self):
         self.save('Saved', note='first')
@@ -325,6 +357,7 @@ class EditorTests(unittest.TestCase):
         self.assertEqual(self.app.text_area[0].value, 'Retained')
 
     def test_quarantine_on_first_read_shows_retry_not_a_crash(self):
+        self.app.session_state['recent'] = (0, [])  # expired: the next run reads the list
         with patch.object(repo, 'list_candidates', side_effect=db.ConnectionQuarantined('busy')):
             self.app.run()
         self.assertFalse(self.app.exception)
@@ -353,15 +386,23 @@ class EditorTests(unittest.TestCase):
 class AdvisoryTests(unittest.TestCase):
     def test_duplicate_check_failure_does_not_fail_a_committed_save(self):
         # REL-11: the save committed; a failing advisory lookup must not make it look failed.
-        row = dict(REVISION_NO=1, FULL_NAME='a', DESCRIPTION=None, DISAMBIG=None,
+        row = dict(CANDIDATE_ID=1, REVISION_NO=1, FULL_NAME='a', DESCRIPTION=None, DISAMBIG=None,
                    DEPARTMENT=None, CATEGORY=None)
-        with patch.object(repo, 'get_candidate', return_value=row), \
-                patch.object(repo, 'update_candidate', return_value=2), \
+        with patch.object(repo, 'update_candidate', return_value=2), \
                 patch.object(repo, 'find_by_exact_name', side_effect=RuntimeError('lookup down')):
-            out = services.save_candidate_edit(1, 1, {'full_name': 'b'}, 'tester')
+            out = services.save_candidate_edit(row, {'full_name': 'b'}, 'tester')
         self.assertTrue(out.ok)
         self.assertEqual(out.revision_no, 2)
         self.assertTrue(out.warnings)
+
+
+class DepartmentTests(unittest.TestCase):
+    def test_old_values_map_to_current_names(self):
+        self.assertEqual(services.department('finance'), 'Finance')
+        self.assertEqual(services.department('bi_meta'), 'Analytics')
+        self.assertEqual(services.department('misc'), 'Other')
+        self.assertEqual(services.department('Finance'), 'Finance')
+        self.assertIsNone(services.department(''))
 
 
 class CreateTests(unittest.TestCase):
@@ -386,6 +427,7 @@ class CreateTests(unittest.TestCase):
         self.insert = Mock(side_effect=insert)
         by_id = lambda cid: next((copy.deepcopy(r) for r in self.rows if r['CANDIDATE_ID'] == cid), None)
         patches = [patch('app.db.viewer', return_value='tester'),
+                   patch('st_keyup.st_keyup', keyup_as_text_input),
                    patch.object(repo, 'list_candidates', side_effect=lambda search: [
                        copy.deepcopy(r) for r in self.rows
                        if search.lower() in r['FULL_NAME'].lower()]),
@@ -411,7 +453,8 @@ class CreateTests(unittest.TestCase):
         self.assertEqual(self.inserts, [1])
         self.assertEqual(self.app.sidebar.radio[0].value, 1)  # listed and selected
         self.assertEqual(self.app.header[0].value, 'Fresh metric')
-        self.assertTrue(self.app.success)  # "Saved" feedback survives the rerun
+        self.assertIn('Saved', self.app.toast[0].value)  # feedback survives the rerun
+        self.assertIn('✓ Saved · rev 1', self.app.caption[0].value)
         self.assertFalse([w for w in self.app.text_input if (w.key or '').startswith('new-')])  # create form gone
         self.app.run()  # a later rerun must not create anything again
         self.assertEqual(self.inserts, [1])
@@ -467,7 +510,7 @@ class CreateTests(unittest.TestCase):
             self.click_save()
         self.assertEqual(self.inserts, [1])
         self.assertEqual(self.app.sidebar.radio[0].value, 1)
-        self.assertIn('did go through as #1', self.app.success[0].value)
+        self.assertIn('did go through as #1', self.app.warning[0].value)
 
     def test_changed_entries_after_a_create_that_did_not_land_save_normally(self):
         self.lose_first_ack(landed=False)
