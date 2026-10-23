@@ -86,16 +86,90 @@ def save_candidate_edit(baseline: dict, fields: dict, actor: str, note: str | No
                    _collisions(fields["full_name"], candidate_id) if renamed else [])
 
 
+def keep_mine(draft: dict, baseline: dict, latest: dict) -> dict:
+    """Conflict resolution: my edited fields win; fields I didn't touch take their saved values,
+    so keeping my edits never reverts theirs."""
+    return {k: v if (v or None) != (baseline[k.upper()] or None) else latest[k.upper()]
+            for k, v in draft.items()}
+
+
+# ── physical implementations (PIs) ─────────────────────────────────────────
+
+CALC_EDITABLE = ("sql_text", "source_table", "disambig")
+CALC_LABELS = {"sql_text": "SQL", "source_table": "Source table", "disambig": "How it differs"}
+
+
+def needs_label(sibling_count: int) -> bool:
+    """One PI needs no label; with two or more, each says how it differs."""
+    return sibling_count > 0
+
+
+def validation_state(calc: dict) -> str:
+    """A result counts only for the revision it checked: edited SQL is unvalidated again."""
+    if calc.get("VALIDATED_REVISION_NO") != calc.get("REVISION_NO"):
+        return "Not validated"
+    return {"passed": "✓ Validated", "failed": "✗ SQL failed"}.get(calc.get("VALIDATION_STATUS"), "Not validated")
+
+
+def _calc_problem(fields: dict, sibling_count: int) -> str | None:
+    if not fields.get("sql_text"):
+        return "Add SQL to save."
+    if needs_label(sibling_count) and not fields.get("disambig"):
+        return "With more than one implementation, say how this one differs."
+    return None
+
+
+def calc_changed(before: dict, fields: dict) -> list[str]:
+    """Editable fields where fields differ from the saved row (UPPER-case keys)."""
+    return [k for k in CALC_EDITABLE if (before[k.upper()] or None) != (fields.get(k) or None)]
+
+
+def save_new_calc(candidate_id: int, calc_id: int, fields: dict, sibling_count: int,
+                  actor: str) -> Outcome:
+    """calc_id is reserved before the first attempt; retrying with it never inserts twice.
+    The first PI of a candidate is its default."""
+    fields = _clean(fields)
+    if problem := _calc_problem(fields, sibling_count):
+        return Outcome(False, problem)
+    if repo.insert_calc(calc_id, candidate_id, fields, sibling_count == 0, actor):
+        return Outcome(True, "SQL saved.", calc_id, 1)
+    # An earlier attempt landed without its acknowledgement.
+    landed = repo.get_calc(calc_id)
+    warnings = [("Your earlier save did go through. Your newer changes are still in the "
+                 "editor — Save again to apply them.")] if calc_changed(landed, fields) else []
+    return Outcome(True, "SQL saved.", calc_id, landed["REVISION_NO"], warnings, latest=landed)
+
+
+def save_calc_edit(baseline: dict, fields: dict, sibling_count: int, actor: str) -> Outcome:
+    """Same contract as save_candidate_edit: the conditional UPDATE is the conflict guard."""
+    fields = _clean(fields)
+    calc_id, expected = baseline["CALC_ID"], baseline["REVISION_NO"]
+    if not calc_changed(baseline, fields):
+        return Outcome(True, "No changes to save.", calc_id, expected)
+    if problem := _calc_problem(fields, sibling_count):
+        return Outcome(False, problem, calc_id)
+    try:
+        rev = repo.update_calc(calc_id, expected, fields, actor)
+    except repo.StaleEdit:
+        latest = repo.get_calc(calc_id)
+        if latest is None:
+            return Outcome(False, "This implementation no longer exists.", calc_id)
+        changed = [CALC_LABELS[k] for k in calc_changed(baseline, {k: latest[k.upper()] for k in CALC_EDITABLE})]
+        return Outcome(False, _conflict_message(latest, changed), calc_id, latest["REVISION_NO"], latest=latest)
+    return Outcome(True, "SQL saved.", calc_id, rev)
+
+
+def _conflict_message(latest: dict, changed: list[str]) -> str:
+    when = f"{latest['UPDATED_AT']:%b %d %H:%M}" if latest.get("UPDATED_AT") else "recently"
+    return (f"**{latest['UPDATED_BY']}** saved a newer version (rev {latest['REVISION_NO']}, {when}) "
+            f"while you were editing. Changed: {', '.join(changed) or 'nothing visible'}. "
+            "Your edits are still in the form.")
+
+
 def _conflict(baseline: dict) -> Outcome:
     candidate_id = baseline["CANDIDATE_ID"]
     latest = repo.get_candidate(candidate_id)
     if latest is None:
         return Outcome(False, f"Candidate #{candidate_id} no longer exists.", candidate_id)
     changed = [LABELS[k] for k in EDITABLE if (baseline[k.upper()] or None) != (latest[k.upper()] or None)]
-    when = f"{latest['UPDATED_AT']:%b %d %H:%M}" if latest.get("UPDATED_AT") else "recently"
-    return Outcome(
-        False,
-        f"**{latest['UPDATED_BY']}** saved a newer version (rev {latest['REVISION_NO']}, {when}) "
-        f"while you were editing. Changed: {', '.join(changed) or 'nothing visible'}. "
-        "Your edits are still in the form.",
-        candidate_id, latest["REVISION_NO"], latest=latest)
+    return Outcome(False, _conflict_message(latest, changed), candidate_id, latest["REVISION_NO"], latest=latest)

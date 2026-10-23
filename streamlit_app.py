@@ -1,4 +1,4 @@
-"""Knowledge Workbench — slice 1: metric candidates (browse · create · edit · history)."""
+"""Knowledge Workbench — slice 1: metric candidates (browse · create · edit · SQL · history)."""
 import json
 import logging
 import time
@@ -7,8 +7,8 @@ import uuid
 import streamlit as st
 from st_keyup import st_keyup
 
+from app import pi_section, services
 from app import repositories as repo
-from app import services
 from app.db import ConnectionQuarantined, viewer
 
 log = logging.getLogger(__name__)
@@ -248,10 +248,7 @@ else:
                        "change take their values. Review, then Save.")
             keep, discard = st.columns(2)
             if keep.button("Keep my edits on the latest version", type="primary", key=f"keep:{selected}"):
-                # Per-field merge, so their changes to fields I didn't touch aren't reverted.
-                draft = editor["draft"]
-                editor["draft"] = {k: draft[k] if (draft[k] or None) != (cand[k.upper()] or None)
-                                   else latest[k.upper()] for k in draft}
+                editor["draft"] = services.keep_mine(editor["draft"], cand, latest)
                 editor["baseline"] = latest
                 editor["generation"] += 1  # reload the form from the merged draft
                 del editor["conflict"]
@@ -262,6 +259,7 @@ else:
                 for k in ("draft", "draft_note", "conflict"):
                     editor.pop(k, None)
                 st.rerun()
+        pi_section.render(selected, arrived, guarded, _flash)
     with tab_hist:
         # Tabs all render on every rerun, so history (full JSON snapshots) loads only on request (PLAT-05).
         if st.toggle("Show history", key=f"hist:{selected}"):

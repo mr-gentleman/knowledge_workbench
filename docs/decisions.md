@@ -195,3 +195,21 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   behavior inside SiS, and whether QUERY_TAG is allowed under owner's rights (tagging turns itself
   off if not).
 - Related: REL-08, REL-09, PLAT-04; app/db.py, app/repositories.py.
+
+## DEC-009 — PIs save per card; a reserved calc_id is the create's retry key
+
+- Date: 2026-10-23. Origin: #claude (UX-01/UX-02, branch claude/sql-on-page). Status: proposed.
+- Context: SQL now lives on the candidate page, one card per physical implementation (PI).
+  `metric_calc` has no `create_token` column, yet a create retried after a lost acknowledgement
+  must not insert twice (same risk as REL-10).
+- Decision: each PI card saves on its own (own revision, conditional UPDATE, conflict handling),
+  like the identity form. Before a new PI's first save the page reserves an id from
+  `seq_calc_id`; the INSERT is skipped when that id already exists, and a replay whose content
+  differs keeps the newer edits as an unsaved draft. No migration needed. The first PI of a
+  candidate is `is_default`; with two or more, each needs a "how it differs" label (`disambig`).
+- Alternatives: a `create_token` column (needs sql/004 before deploy); one Save for identity + SQL
+  (couples two records' conflicts into one form).
+- Consequences: abandoned cards leave sequence gaps (fine). Two people adding the first PI to the
+  same candidate at once can both get `is_default`; acceptable until promotion, which must
+  choose one anyway.
+- Related: UX-01, UX-02, REL-10; app/pi_section.py, app/services.py, app/repositories.py.

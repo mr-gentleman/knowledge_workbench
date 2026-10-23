@@ -196,6 +196,69 @@ def update_candidate(candidate_id: int, expected_revision: int, fields: dict,
     return _in_txn(run, "candidate.edit", actor, candidate_id)
 
 
+# ── physical implementations (metric_calc) ──────────────────────────────────
+
+def list_calcs_for_candidate(candidate_id: int) -> list[dict]:
+    rows = query(
+        f"""SELECT * FROM {SCHEMA}.metric_calc
+            WHERE origin_candidate_id = ? AND status = 'active'
+            ORDER BY calc_id""",
+        [candidate_id],
+    )
+    return [r.as_dict() for r in rows]
+
+
+def get_calc(calc_id: int):
+    rows = query(f"SELECT * FROM {SCHEMA}.metric_calc WHERE calc_id = ?", [calc_id])
+    return rows[0].as_dict() if rows else None
+
+
+def reserve_calc_id() -> int:
+    """Taken before the first save, so the id doubles as that create's retry key
+    (metric_calc has no create_token). Abandoned ids leave gaps, which are fine."""
+    return query(f"SELECT {SCHEMA}.seq_calc_id.NEXTVAL")[0][0]
+
+
+def insert_calc(calc_id: int, candidate_id: int, fields: dict, is_default: bool,
+                actor: str, source: str = "sme") -> bool:
+    """Idempotent per calc_id. False = the row already existed (a retried create)."""
+    def run(execute, meta):
+        if execute(f"SELECT calc_id FROM {SCHEMA}.metric_calc WHERE calc_id = ?", [calc_id]):
+            meta["replayed"] = True
+            return False
+        execute(
+            f"""INSERT INTO {SCHEMA}.metric_calc
+                  (calc_id, origin_candidate_id, disambig, source, sql_text, source_table,
+                   is_default, original_author, created_by, updated_by)
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?""",
+            [calc_id, candidate_id, fields.get("disambig"), source, fields["sql_text"],
+             fields.get("source_table"), is_default, actor, actor, actor],
+        )
+        _snapshot("metric_calc", "metric_calc", "calc_id", calc_id, "create", actor, None, execute)
+        return True
+
+    return _in_txn(run, "calc.create", actor, calc_id)
+
+
+def update_calc(calc_id: int, expected_revision: int, fields: dict, actor: str) -> int:
+    def run(execute, meta):
+        res = execute(
+            f"""UPDATE {SCHEMA}.metric_calc
+                SET sql_text = ?, source_table = ?, disambig = ?,
+                    revision_no = revision_no + 1,
+                    updated_by = ?, updated_at = CURRENT_TIMESTAMP()
+                WHERE calc_id = ? AND revision_no = ?""",
+            [fields["sql_text"], fields.get("source_table"), fields.get("disambig"),
+             actor, calc_id, expected_revision],
+        )
+        if res[0][0] == 0:
+            raise StaleEdit(calc_id)
+        _snapshot("metric_calc", "metric_calc", "calc_id", calc_id, "edit", actor, None, execute)
+        return expected_revision + 1
+
+    return _in_txn(run, "calc.edit", actor, calc_id)
+
+
 def history(record_type: str, record_id: int):
     return query(
         f"""SELECT revision_no, action, actor, acted_at, change_note, snapshot, schema_version
