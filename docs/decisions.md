@@ -273,3 +273,30 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   page layer) and `scripts/deploy.sh` change at cutover. Streamlit UI items (UX-03, UX-06, UX-07, UX-09
   in Streamlit) are done once, in React. Work already in flight in Streamlit is kept only where it
   is backend or will ship before cutover.
+
+## DEC-020 — One metric page, one Edit, one Save; the save is all-or-nothing
+
+- Date: 2026-10-23. Origin: #chris (agreeing with a GPT Astra note); recorded by #claude.
+- Status: decided. Supersedes DEC-019's "PIs save independently" (claude/sql-on-page) and the
+  per-card Save on the parked Streamlit UI. Settles J1 D1 (view mode + Edit) and the open
+  "one Save per page vs per section" question in DEC-014.
+- Context: the user's mental model is "I'm defining CSAT, including the ways we calculate it."
+  Separate records (candidate, metric_calc) don't need separate workflows; per-card Save buttons
+  create "which parts have I saved?".
+- Decision: the metric page has a **definition** (name, business description, what the calculation
+  means, rules that hold whichever table supplies the data) and a repeatable **implementations**
+  section (compact expandable cards). Read mode shows summaries with expandable SQL. **Edit** opens
+  one editing session over the whole page: change the definition, edit, add or remove
+  implementations. Adding/removing changes only the local draft. **Save changes** validates and
+  commits everything in one transaction, updating and versioning only records that changed.
+  **Cancel** discards the whole session. A validation error or a conflict on any record writes
+  nothing and keeps the draft. Contract: [plans/metric-save-contract.md](plans/metric-save-contract.md).
+- Alternatives: per-implementation Save (kept only for a future PI with its own approval workflow);
+  calling the existing per-record saves in sequence (can leave half the page saved — rejected).
+- Consequences: the backend needs one atomic multi-record save (extends PLAT-09's procedure).
+  Removing an implementation sets `metric_calc.status = 'retired'` (no migration). SQL run checks
+  (`✓ Runs · rev N`) run after commit on changed SQL and never fail the save (DEC-014, J1).
+  Modeling guard: daily/monthly/scorecard versions are implementations of one metric only if they
+  keep its business definition; a different population or weighting is a different metric
+  (consistent with Variant retired: different calc = two canons). "Faster" alone is not a reason
+  for another implementation.
