@@ -34,6 +34,14 @@ edit side: P15–P22.
 | **Linear** (public docs + homepage demo) | `/docs/creating-issues`, `/docs/editor`, `linear.app` | Create and edit fast · activity feed | Keyboard-first creation; human and machine changes in one calm timeline |
 | ~~dbt docs~~ | — | Domain analog | **Not studied:** GitLab's public dbt docs now sit behind a bot check and sign-in; dbt's MRR playbook demo returns 404. |
 
+Third pass, from Astra's brief (its "focused first pass" list, minus Linear, which was already done):
+
+| Site | Page(s) studied | Job | Feel in one line |
+|---|---|---|---|
+| **Scryfall** | `/search?q=t:goblin c:r mv<=2`, a malformed query, `/card/msc/806/lightning-bolt` | Expert discovery · one entity, many implementations | Power-user syntax, but it always tells you in English what it understood |
+| **regex101** | `/` (typed a pattern + test strings, then broke it) | Precise input with live feedback | The check says exactly what it established, and errors point at the token |
+| **Sanity** (docs; the Studio needs a sign-in) | `/docs/content-lake/drafts-and-versions` | Draft vs published lifecycle | Published stays intact while one draft holds your edits |
+
 Edit-side caveat: I couldn't type in any of the editors. Wikipedia's editor opens but blocks
 this IP range from publishing. GitHub's editor and the Linear app need a sign-in. So save,
 commit and draft behavior come from what the pages show plus Linear's own docs, and I mark
@@ -339,6 +347,105 @@ can't be done well. *Streamlit* means stock Streamlit plus light CSS; *React* me
   feed. `@metric` mentions in a description auto-link related metrics (a cheap start on "related").
 - **Cost:** Streamlit **S–M**. React **S**.
 
+### Discovery and feedback (third pass: Scryfall, regex101, Sanity)
+
+#### P23 · The search repeats your query back in plain English
+- **Seen:** Scryfall. `t:goblin c:r mv<=2` returns *"1 – 60 of 245 cards where the card types
+  include "goblin" and the colors ≥ R and the mana value <= 2"*. A malformed query still runs
+  the valid part and says what it dropped: *"0 cards found where the card types include
+  "gobln" · Invalid expression "foo:bar" was ignored. Unknown keyword "foo"."* The empty state
+  then offers **Go Back · Syntax Guide · Advanced Search**. View (*Images / Checklist / Text*)
+  and sort are dropdowns written as a sentence: *Cards **as** Images **sorted by** EDHREC
+  Rank*. All of it lives in the URL.
+  ![Scryfall query in English](ux-exemplars/scryfall-query-in-english.jpg)
+- **Why it works:** Rule 6 and Goal 3. Experts get terse syntax and novices get a sentence.
+  Nothing is silently ignored, which fixes the classic "why are there no results?".
+- **Workbench:** J1 list. *"12 metrics in Finance, canon only, matching "arr"."* Each clause
+  is clickable to remove it (pairs with P2/P3). Zero results gives that sentence plus
+  **Create "arr"** · **Clear filters**. Elaborate query syntax is later (Astra agrees); the
+  echo sentence is now.
+- **Cost:** Streamlit **S**. React **S**.
+
+#### P24 · One concept, many implementations, with the current one highlighted
+- **Seen:** the Scryfall card page. The card's text and rules sit in the middle. The right rail
+  lists **Prints** (every printing, with prices) and **Faces, tokens & other parts**, with the
+  one you're viewing highlighted and **View all prints →** below. A **legality grid** gives one
+  status chip per format (`LEGAL` / `NOT LEGAL` / `BANNED`). Utility links: *Copy-pasteable
+  JSON · Report card issue*.
+  ![Scryfall entity](ux-exemplars/scryfall-entity.jpg)
+- **Why it works:** Goal 3. The concept (the card) and its implementations (the prints) are
+  one page with a compact switcher, not separate screens. That's Astra's "a metric and its
+  implementations may belong in the same working context even if stored separately". The
+  legality grid shows status per context without a paragraph.
+- **Workbench:** J2/J3. The SQL card lists implementations compactly (*"Snowflake · canon ·
+  ✓ ran rev 4"*, *"Looker-derived · candidate"*), the selected one highlighted, and the
+  editor shows it. Later, a per-context grid (*Finance: canon · Marketing: not used ·
+  Oracle: served*) is the legality-grid analog. *Report an issue* is the cheapest SME
+  contribution path there is.
+- **Cost:** Streamlit **S–M**. React **S**.
+
+#### P25 · The check says exactly what it established
+- **Seen:** regex101. While evaluating, a small badge reads **Processing…**. When it
+  finishes: **3 matches · 56 steps · 38.3 ms**, and the test-input tab gains a ✓. Named groups
+  are color-linked across the pattern, the test text and the Match Information table
+  (*Group metric 0–3 ARR · Group month 4–11 2026-09*). Empty panels explain what will appear:
+  *"Detailed match information will be displayed here automatically."*
+  ![regex101 live feedback](ux-exemplars/regex101-live-feedback.jpg)
+- **Why it works:** Rule 3 and trust. "Passed" is replaced by *what* passed, measured. That's
+  Astra's sharpest point: *"Syntax check passed; business correctness has not been reviewed."*
+- **Workbench:** J1/J3 validation. Replace bare `✓ Validated` with what actually ran:
+  `✓ Runs on Snowflake · 10-row preview · 1.4 s · rev 4`. Business correctness is a separate,
+  human, later state (*"Not yet reviewed against a known number"*). See the vocabulary change
+  in the principles section.
+- **Cost:** Streamlit **S**. React **S**.
+
+#### P26 · An error points at the exact spot and leaves your work intact
+- **Seen:** regex101. Adding a stray `(` immediately shows a **Pattern Error** badge, a red
+  marker on the offending token, the explanation *"Group is incomplete"*, an error icon on the
+  test-input tab, *"The regular expression contains one or more errors"* in the match panel,
+  and completion suggestions at the cursor. The test strings are untouched.
+  ![regex101 error](ux-exemplars/regex101-error.jpg)
+- **Why it works:** Rule 6 (plain errors) and Rule 4 (nothing lost). The error appears where
+  your eyes already are.
+- **Workbench:** J1/J3 `✗ SQL failed`. Map Snowflake's `line N, position M` to a marker in the
+  SQL editor; show the message under the editor; keep the last good preview greyed and
+  labelled *"from rev 3"* rather than blanking it.
+- **Cost:** Streamlit **L** (no editor gutter markers without a custom component). React
+  **S–M** (Monaco/CodeMirror diagnostics).
+
+#### P27 · Explanation and test inputs beside the input
+- **Seen:** regex101. The right column holds an **Explanation** tree that rebuilds as you type
+  (*"^ start of line · Group metric … · A-Z one character from A to Z"*). Test strings live in
+  tabs (**Input 1 · +**), each with its own pass/fail icon.
+- **Why it works:** you see the machine's reading of your input next to the input. Astra calls
+  regex101 "the strongest conceptual reference for future authoring assistance".
+- **Workbench:** later, as Astra's **AI interpretation preview**: beside the definition, the
+  Oracle's paraphrase plus *"questions this should answer"* / *"should not answer"* as test
+  tabs, each with a ✓/✗ from an actual Oracle run (cost-gated). It's tied to the revision and
+  goes stale on edit. V1: none; keep space in the layout.
+- **Cost:** Streamlit **M**. React **M** (the cost is the Oracle calls, not the UI).
+
+#### P28 · Published stays intact while a single draft holds your edits
+- **Seen (Sanity docs, including a Studio screenshot inside the docs):** a document is
+  *Published*, *Draft* or *Version*. *"A document has at most one draft"*. Editing a published
+  document creates a draft, and *"the published document stays intact until you roll the
+  changes out"*. Production reads the **published perspective** only. In the Studio screenshot
+  the header shows `PUBLISHED` (filled) and `DRAFT` (outlined) chips side by side, *"Updated
+  1m ago"*, and a separate **✓ Synced** at top right. The context menu has *Browse history*,
+  *Inspect* (with keyboard shortcuts), and *Delete…* in red, last. The docs also warn that
+  `_updatedAt` changes on *any* write, so they advise an explicit `publishedAt` field.
+  ![Sanity draft and published](ux-exemplars/sanity-draft-published.jpg)
+- **Why it works:** Rule 3, cleanly. Lifecycle (`PUBLISHED`/`DRAFT`), save (`✓ Synced`) and
+  time (`Updated 1m ago`) are three separate signals. Editing something live is safe by
+  construction.
+- **Workbench:** J3, LIFE-03 (editing canon). Editing a canon metric creates **one pending
+  revision**. The header reads `Canon` + `Revision pending`, and the Oracle keeps serving the
+  last canon until the revision is promoted. Pairs with GitHub's "make or propose" (P20). The
+  timestamp lesson also applies to #chris's "average freshness" (P13): freshness needs its
+  own `last_validated_at` / `promoted_at`, never a generic updated-at.
+- **Cost:** UI: Streamlit **S**, React **S**. The real cost is the data model (a revision
+  table with a pending pointer). It's a separate decision, not V1 scope unless LIFE-03 pulls it in.
+
 ### Anti-patterns observed
 
 - **Full-page search with a 10-result cap** (BeerAdvocate `/search`: ~675 ms to first byte,
@@ -365,6 +472,11 @@ can't be done well. *Streamlit* means stock Streamlit plus light CSS; *React* me
 | P16 Edit summary · P17 History rows + Restore… · P19 SQL byline · P20 Disabled-with-reason · P21 Prefill URL | **Adopt now** | All S in Streamlit; P21 gives the Oracle a "create this metric" link |
 | P15 Edit-in-place · P18 Word-level diff · P19 Blame · P21 Keyboard create | **Adopt with React** | P15 is the biggest edit-side "feels modern" item, and L in Streamlit |
 | P22 Unified human + machine timeline | **Adopt now (simple), grow in V2** | Plain list now; machine events arrive with V2 |
+| P23 Query echoed in English · P25 "What the check established" | **Adopt now** | Cheap and high-trust; P25 changes the status vocabulary |
+| P24 Implementations list in the metric page | **Adopt now (simple)** | List + highlight now; per-context grid later |
+| P26 Error marker on the SQL line | **Adopt with React** | Needs editor diagnostics |
+| P28 Canon + one pending revision | **Decide with LIFE-03** | Data-model change; the UI is cheap |
+| P27 AI interpretation preview | **Later** | Leave layout room; costs Oracle calls |
 | P10 Deviation vs consensus | **Defer to V2** | Belongs to adjudication |
 | Lolalytics density, BeerAdvocate full-page search | **Skip** | See anti-patterns |
 
@@ -396,6 +508,13 @@ the spike asked for.
     saving it creates a new revision. From P17.
 11. **Machines are named actors.** Imports, forensics and validation appear in the same
     history as people, attributed and visually quieter. From P22.
+12. **Validation says what it established.** This changes the status vocabulary: `✓ Validated`
+    becomes `✓ Runs · N-row preview · rev N`. Business correctness is a separate state, set by a
+    person, never implied by a passing run. From P25 + Astra.
+13. **Machine feedback is pinned to a revision and goes stale on edit.** It's already true for
+    validation; extend it to every future check or suggestion. From Astra.
+14. **Coming back never costs you your place.** Returning from a metric restores the query,
+    filters, selection and scroll position. From Astra; P2's URL state is the mechanism.
 
 ## Making it scoreable (#chris: "scoreable and highly iterable, not vibes")
 
@@ -410,11 +529,14 @@ screenshots, so #chris + AI can iterate without manual clicking.
 | Primary buttons per state | exactly 1 | DOM count of `.primary` per state |
 | Status visible without scrolling after Save | yes | Screenshot + DOM `getBoundingClientRect` |
 | Each of the five states (success/empty/waiting/failure/interrupted) designed | 5 / 5 | Script forces each; screenshot reviewed against P-patterns |
-| Pattern adoption | count of P1–P22 present | Rubric per screen, 0/1/2 each, graded from screenshots |
+| Pattern adoption | count of P1–P28 present | Rubric per screen, 0/1/2 each, graded from screenshots |
 | Acceptance checks (v1-journeys) | all pass | Existing walkthrough list, automated where possible |
+| Astra's five reference tasks | each completed, with friction noted | Scripted: find among many · open and return with context intact · change text + a property · confirm saved · inspect validation/status/history |
 
-The rubric gives a number per build (e.g. *"list screen 19/44"*) to compare across the
-Streamlit and React spikes, and across iterations.
+The rubric gives a number per build (e.g. *"list screen 19/56"*) to compare across the
+Streamlit and React spikes, and across iterations. Astra's caution applies: a number without its
+criteria is noise. Every score links to its per-item breakdown, and this rubric grades the
+*app's UX*, never the quality of a metric's content.
 
 ## Gaps — closer analogs still needed
 
@@ -423,8 +545,13 @@ Streamlit and React spikes, and across iterations.
   UI, toast, the "done" feeling), because every editor needed a sign-in or blocked publishing.
   To close it: a signed-in Linear or Notion session by #chris, or a Wikipedia edit from an
   unblocked network (preview only, no publish).
-- **Domain analog.** dbt docs demos are offline. Candidates: **DataHub** public demo, **Atlan**
-  or **Select Star** product tours, **Metabase** docs screenshots of the Data Reference.
+- **Domain analog.** dbt docs demos are offline. Astra's list adds **dbt Catalog** docs,
+  **Atlan** (asset profiles), and **Notion** verified wiki pages (trust signals in search).
+  Also worth a look: the **DataHub** public demo.
+- **Astra references not yet studied** (consult when a specific question comes up, per Astra):
+  Supabase SQL editor (editor layout), Moxfield (collection-building with context kept), Desmos
+  (quiet progressive disclosure), Lichess analysis/studies (human judgment + machine feedback),
+  Shadertoy (code → compile → output in one workspace).
 - **Dashboard-ish metric metadata** (questions answered, feedback average, Looker links).
   #chris: "can be later". Lolalytics is already the exemplar when it comes.
 
@@ -442,12 +569,39 @@ Streamlit and React spikes, and across iterations.
 - **Wikipedia:**
 - **GitHub:**
 - **Linear:**
+- **Scryfall:**
+- **regex101:**
+- **Sanity:**
 
-## Astra read (optional) — side by side
+## Astra read — side by side
 
-*If #chris runs a GPT Astra read of the same sites, paste its findings here. One row per
-pattern it found; mark agreements and disagreements with the P-numbers above.*
+Astra (GPT, via #chris, 2026-10-23; [verbatim](reviews/2026-10-23-astra-ux-brief.md)) wrote a **design brief** rather than a site-by-site read.
+It defines the product's feel, principles, and a reference list with a focused first pass
+(Linear, Sanity, Scryfall, regex101). P23–P28 come from following that first pass. Below,
+each claim in the brief is set against this library.
 
-| Astra finding | Matches | Disagrees / new |
+**Feel.** Astra: *"spartan, modern, precise, responsive, and satisfying to operate … a capable
+instrument"*; polish from typography, hierarchy, spacing and feedback, not decoration.
+ux-principles Goal 4 says *"fun, cool, modern … a requirement"*. These are compatible if the fun
+comes from **responsiveness and feedback** (P1, P13's number ticking up, P25's live result)
+rather than ornament. That reading is mine; #chris decides.
+
+| Astra says | Claude's library | Verdict |
 |---|---|---|
-| | | |
+| Two connected experiences: discovery and authoring, little ceremony between | #chris's two-sides framing; P15 (edit in place) keeps the transition light | **Agree** |
+| Organize around the work; a metric and its implementations share one context | P8 (SQL beside definition), P24 (implementations on the page) | **Agree** |
+| Give meaning the best space; keep metadata compact | "Content first"; P9 quiet meta line; P11 tabs | **Agree** |
+| Preserve continuity: return with filters, selection and scroll intact | P2 puts state in the URL; scroll restore was not observed anywhere | **Agree, new** → principle 14 |
+| Progressive disclosure | P11 tabs; Stripe *Show child attributes*; P27 later | **Agree** |
+| Saved ≠ candidate/canon ≠ validation | Rule 3; P9; P28 (Sanity's `PUBLISHED`/`DRAFT` vs `✓ Synced`) | **Agree** (already a rule) |
+| State validation precisely: *"syntax check passed" ≠ business-correct* | Our vocabulary says `✓ Validated`, which over-claims | **Astra is right; change ours** → P25, principle 12 |
+| Machine vs automated vs human judgments distinguishable | P22 named machine actors | **Agree** |
+| Feedback tied to the evaluated version, stale after edits | Already true for validation (J1 contract) | **Agree, generalize** → principle 13 |
+| Restrained color, avoid ornamental dashboards and excess badges | Matches "Restraint"; **tension** with P13 progress strip and Lolalytics-style stats | **Partly differ**: keep P13 to one quiet line of numbers that each mean something, not a dashboard. #chris to judge |
+| A generic "83/100" is less useful without criteria | My rubric scores *UX builds*, not metric quality | **Agree**: criteria shown with every score; never score content without a stated rubric |
+| Don't assume inline vs edit mode vs side panel; decide from the workflow | I recommend P15 edit-in-place + an explicit Edit (J1 D1) | **Mild difference**: Astra is more cautious. Test D1 with long descriptions and multiple SQL implementations before locking it |
+| AI interpretation preview: paraphrase, should/shouldn't-answer questions | P14 Copy for LLM is the cheap precursor; P27 regex101 is the layout | **Agree, later** |
+| Discovery: search + shallow browse by type/area; avoid deep folders; multi-category | P1, P2, P3, P7; departments as filter not folder | **Agree** |
+| Research protocol: five concrete tasks per reference, observed vs inferred | Followed in spirit; caveats mark what wasn't observable (sign-ins) | **Agree** → added to the rubric |
+| V1 = find, understand, edit comfortably, save reliably, understand status | Same as J1–J3; matches the "Later" items in the verdict table | **Agree** |
+| BeerAdvocate and Lolalytics: patterns, not whole designs | Same conclusion (see anti-patterns: density) | **Agree** |
