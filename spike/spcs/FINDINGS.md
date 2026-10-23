@@ -21,7 +21,7 @@
 - **Registry login gotcha:** the password is the *whole* `snow spcs image-registry token --format JSON` blob, not its `token` field. With just the field, login fails with "invalid username/password". `deploy.sh` is fixed.
 - Service `AI_PLATFORM.WORKBENCH.KW_SPIKE` on `KW_SPIKE_POOL`, image `kw-spike:e61742c`: **build+push 22 s (warm), rollout 48 s to READY, including the pool resume.**
 - Access: `WORKBENCH_USER` was created by SECURITYADMIN, granted to `CLENZINI` and to `SYSADMIN`, and holds `KW_SPIKE!KW_USER` (granted by WORKBENCH_APP).
-- Endpoint URL was still "provisioning" right after READY. Get it with `SHOW ENDPOINTS IN SERVICE AI_PLATFORM.WORKBENCH.KW_SPIKE`.
+- Endpoint: **https://fmje2s-activecampaign-fm00411.snowflakecomputing.app** (provisioning took a few minutes after READY).
 - **Next (fresh session):** live checks 1–5 in COCO_HANDOFF.md, then fill in the FE-01 table below. Also run `ALTER SERVICE AI_PLATFORM.WORKBENCH.KW_SPIKE SET AUTO_SUSPEND_SECS = 1800` (handoff.sql §6).
 
 ## FE-01 gate (DEC-018): all three must pass
