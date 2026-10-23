@@ -16,7 +16,7 @@ sed "s/IMAGE_TAG/$TAG/" spike/spcs/service.yaml > "$SPEC"
 t0=$(date +%s)
 # `snow spcs image-registry login` shells out to docker; this form works for podman too.
 snow spcs image-registry token -c "$CONN" --format JSON \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])' \
+  | python3 -c 'import json,re,sys; print(json.loads(re.search(r"\{.*\}", sys.stdin.read(), re.S).group(0))["token"])' \
   | $ENGINE login "$REGISTRY" --username 0sessiontoken --password-stdin
 $ENGINE build --platform linux/amd64 -f spike/spcs/Dockerfile -t "$REPO_URL/kw-spike:$TAG" .
 $ENGINE push "$REPO_URL/kw-spike:$TAG"
@@ -29,8 +29,12 @@ else
   snow spcs service upgrade AI_PLATFORM.WORKBENCH.KW_SPIKE -c "$CONN" --spec-path "$SPEC"
 fi
 # Wait for the new container to be ready (upgrade is a rolling restart).
-until snow sql -c "$CONN" --format json -q \
-    "SELECT SYSTEM\$GET_SERVICE_STATUS('AI_PLATFORM.WORKBENCH.KW_SPIKE')" | grep -q '\\"READY\\"'; do
+for i in $(seq 60); do  # up to ~5 min
+  status=$(snow sql -c "$CONN" --format json -q \
+    "SELECT SYSTEM\$GET_SERVICE_STATUS('AI_PLATFORM.WORKBENCH.KW_SPIKE')" | grep -o '\\"status\\": *\\"[A-Z_]*' | head -1)
+  echo "status: $status"
+  [[ "$status" == *READY* ]] && break
+  [[ "$status" == *FAILED* ]] && { echo "service FAILED; see: snow spcs service logs AI_PLATFORM.WORKBENCH.KW_SPIKE --container-name web --instance-id 0 -c $CONN"; exit 1; }
   sleep 5
 done
 t2=$(date +%s)
