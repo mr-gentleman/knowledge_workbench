@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import SqlEditor from './SqlEditor.jsx';
-import { FACT, SAMPLE_CANON, pi } from './sample.js';
+import DefinitionSection from './DefinitionSection.jsx';
+import Explorer from './Explorer.jsx';
+import FactTables from './FactTables.jsx';
+import PiSection from './PiSection.jsx';
+import SearchBox, { matches } from './SearchBox.jsx';
+import { SAMPLE_CANON } from './sample.js';
 import { getCandidate, getMe, listCandidates, saveMetric } from './api.js';
 
 const DEPT_LABEL = d => (d ? d[0].toUpperCase() + d.slice(1) : 'Unassigned');
@@ -30,82 +34,12 @@ const Icon = {
   queue: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="19" cy="16" r="3" /></svg>,
 };
 
-function piStatus(p) {
-  if (p.status === 'bad') return <span className="badge bad">✗ Failed · rev {p.validatedRev}</span>;
-  if (p.status === 'stale' || p.rev > p.validatedRev) return <span className="badge warn">Edited since check</span>;
-  return <span className="badge ok">✓ Passed · rev {p.validatedRev}</span>;
-}
-
-function PiRow({ p, open, onToggle, onChange, onDefault, onRemove, showDefault, orig, editing }) {
-  const grain = FACT[p.table] || '—';
-  const [check, setCheck] = useState(null);
-  const short = p.table.split('.').slice(-1)[0];
-  const validate = () => {
-    setCheck({ state: 'run' });
-    setTimeout(() => {
-      const okish = /\bFROM\b/i.test(p.sql);
-      onChange({ status: okish ? 'ok' : 'bad', validatedRev: p.rev, msg: okish ? '' : 'No FROM clause' });
-      setCheck({ state: okish ? 'ok' : 'bad', ms: 900 + Math.round(Math.random() * 700) });
-    }, 650);
-  };
-  const changed = k => (orig && orig[k] !== p[k] ? ' changed' : '');
-  return (
-    <div className={'pi' + (open ? ' open' : '')}>
-      <button className="pirow" onClick={onToggle} aria-expanded={open}>
-        <span className={'caret' + (open ? ' open' : '')}>▸</span>
-        <span className="grain">{grain}</span><span className="tbl">{short}</span>
-        <span className="right">{p.isDefault && showDefault ? <span className="badge plain">Default</span> : null}{piStatus(p)}</span>
-      </button>
-      {open && !editing && (
-        <div className="pibody">
-          {p.disambig ? <p className="readtext">{p.disambig}</p> : null}
-          <pre className="sqlread">{p.sql}</pre>
-          <span className="served">{p.served ? `Agent uses rev ${p.served}` : 'Not served yet'} · Source: {p.source === 'sme' ? 'SME' : 'Auto-generated'}</span>
-        </div>
-      )}
-      {open && editing && (
-        <div className="pibody">
-          <SqlEditor id={'sql-' + p.id} fileName={short + '.sql'} value={p.sql}
-            onChange={v => onChange({ sql: v, rev: orig && v !== orig.sql ? orig.rev + 1 : p.rev, status: orig && v !== orig.sql ? 'stale' : p.status })} />
-          <div className="edbar">
-            <button className="btn" onClick={validate} disabled={check && check.state === 'run'}>{check && check.state === 'run' ? 'Running…' : 'Validate SQL'}</button>
-            {check && check.state === 'ok' ? <span className="valmsg ok">Ran in {(check.ms / 1000).toFixed(1)}s · 1 row · passed on rev {p.rev}</span>
-              : (check && check.state === 'bad') || p.status === 'bad' ? <span className="valmsg bad">{p.msg || 'Query failed'}. Fix the SQL and validate again.</span>
-                : <span className="valmsg">Checks that it runs. It doesn't prove the number is right.</span>}
-          </div>
-          <div className="grid2">
-            <div className="field">
-              <label htmlFor={'tbl-' + p.id}>Fact table</label>
-              <select id={'tbl-' + p.id} className={'select' + changed('table')} value={p.table} onChange={e => onChange({ table: e.target.value })}>
-                {Object.keys(FACT).map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <span className="hint">Grain comes from the fact table: {grain}.</span>
-            </div>
-            <div className="field">
-              <label htmlFor={'dis-' + p.id}>When to use</label>
-              <textarea id={'dis-' + p.id} className={'ta' + changed('disambig')} rows="2" value={p.disambig}
-                placeholder={showDefault ? 'Required when a metric has more than one implementation' : 'Optional with one implementation'}
-                onChange={e => onChange({ disambig: e.target.value })} />
-            </div>
-          </div>
-          <div className="edbar">
-            {showDefault ? <label className="radio"><input type="radio" name="default-pi" checked={p.isDefault} onChange={onDefault} /> Default implementation</label> : null}
-            <span className="served">{p.served ? <>Agent uses <b>rev {p.served}</b>{p.rev !== p.served ? ` · you're editing rev ${p.rev}` : null}</> : 'Not served yet'}</span>
-            <button className="btn ghost" style={{ marginLeft: 'auto' }} onClick={onRemove}>Remove implementation</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function App() {
   const [data, setData] = useState(SAMPLE_CANON);
   const [saved, setSaved] = useState(SAMPLE_CANON);
   const [sel, setSel] = useState('nrr');
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
-  const [openDept, setOpenDept] = useState({ Finance: true });
   const [openPi, setOpenPi] = useState(1);
   const [toast, setToast] = useState('');
   const [nav, setNav] = useState('metrics');
@@ -150,13 +84,11 @@ export default function App() {
   const m = data.find(x => x.key === sel);
   const pend = m && pending[m.key];
   const orig = saved.find(x => x.key === sel);
-  const visible = data.filter(x => (filter === 'all' || x.kind === filter)
-    && (!q || (x.name + ' ' + x.description + ' ' + x.disambig).toLowerCase().includes(q.toLowerCase())));
+  const visible = data.filter(x => matches(x, q, filter));
   const depts = [...new Set(data.map(x => x.dept))];
 
   const replace = (list, nm) => list.map(x => (x.key === nm.key ? nm : x));
   const setM = patch => setData(d => d.map(x => (x.key === sel ? { ...x, ...patch } : x)));
-  const setPi = (id, patch) => setM({ pis: m.pis.map(p => (p.id === id ? { ...p, ...patch } : p)) });
 
   const dirty = [];
   if (m && orig) {
@@ -225,11 +157,6 @@ export default function App() {
     setJustSaved(j => { const { [key]: _, ...rest } = j; return rest; });
   };
   const cancel = () => { setData(d => d.map(x => (x.key === sel ? orig : x))); setEditing(false); setError(''); store(sel, null); };
-  const addPi = () => {
-    const id = Date.now();
-    setM({ pis: [...m.pis, pi(id, 'AC.conformed_dimensions.cohort_account_monthly_consolidation', '-- New implementation\nSELECT\n    \nFROM AC.\nWHERE ', { isDefault: m.pis.length === 0, validatedRev: 0, rev: 1, served: null, status: 'stale', source: 'sme' })] });
-    setOpenPi(id);
-  };
   const missing = m && m.kind === 'cand'
     ? [!m.pis.length && 'at least one implementation that passes validation', m.pis.length && !m.pis.some(p => p.status === 'ok') && 'a passing implementation'].filter(Boolean)
     : [];
@@ -244,42 +171,16 @@ export default function App() {
           <button key={k} className={'railbtn' + (nav === k ? ' on' : '')} onClick={() => setNav(k)}>{Icon[k]}{l}</button>
         ))}
       </nav>
-      <aside className="explorer" aria-label="Metric explorer">
-        <div className="exhead">
-          <h2>Metrics</h2>
-          <input className="search" id="search" placeholder="Search names, definitions, when-to-use" value={q} onChange={e => setQ(e.target.value)} />
-          <div className="chips">{[['all', 'All'], ['canon', 'Canon'], ['cand', 'Candidates']].map(([k, l]) => (
-            <button key={k} className={'chip' + (filter === k ? ' on' : '')} onClick={() => setFilter(k)}>{l}</button>
-          ))}</div>
-        </div>
-        <div className="tree">
-          {depts.map(dp => {
-            const items = visible.filter(x => x.dept === dp);
-            const open = openDept[dp] || !!q;
-            return (
-              <div key={dp}>
-                <button className="folder" onClick={() => setOpenDept(o => ({ ...o, [dp]: !o[dp] }))} aria-expanded={open}>
-                  <span className={'caret' + (open ? ' open' : '')}>▸</span>{dp}<span className="count">{items.length}</span>
-                </button>
-                {open && items.map(x => (
-                  <button key={x.key} className={'item' + (x.key === sel ? ' on' : '')} onClick={() => pick(x.key)}>
-                    <span className={'dot ' + x.kind} /><span className="nm">{x.name}</span>{x.live && <span className="live">live</span>}
-                  </button>
-                ))}
-              </div>
-            );
-          })}
-          {!visible.length && <div className="empty" style={{ padding: '20px 8px' }}>No metrics match “{q}”.</div>}
-        </div>
-      </aside>
+      <Explorer search={<SearchBox q={q} setQ={setQ} filter={filter} setFilter={setFilter} />}
+        visible={visible} depts={depts} q={q} sel={sel} pick={pick} />
       <main className="main">
         <div className={'banner' + (live.state === 'ok' ? ' live' : '')}>
           <span>{live.state === 'ok' ? `Candidates are live from AI_PLATFORM.WORKBENCH (${live.n} open, ${live.ms} ms). Canon is sample data.`
             : live.state === 'error' ? `Couldn't reach the API: ${live.msg}. Showing sample data only.` : 'Loading candidates…'}</span>
           <span className="r">{me?.user ? `signed in as ${me.user}` : me?.error ? `identity: ${me.error}` : ''}</span>
         </div>
-        {nav !== 'metrics' ? (
-          <div className="page"><div className="empty">{nav === 'tables' ? 'Fact tables' : 'Review queue'} would open here. The spike only covers the metric editor.</div></div>
+        {nav === 'tables' ? <FactTables /> : nav !== 'metrics' ? (
+          <div className="page"><div className="empty">Review queue would open here. The spike only covers the metric editor.</div></div>
         ) : m && (
           <div className="page">
             <div className="crumbs">{m.dept} / {m.category || 'Uncategorized'}</div>
@@ -309,34 +210,9 @@ export default function App() {
             {error && <div className="error" role="alert">{error}</div>}
             {missing.length ? <div className="missing">Can't promote to canon yet. Still needs {missing.join(' and ')}.</div> : null}
 
-            <section className="section">
-              <div className="sechead"><h3>Definition</h3><div className="rule" /></div>
-              {editing ? (<>
-                <div className="grid2">
-                  <div className="field"><label htmlFor="f-name">Full name</label><input id="f-name" className={'input' + changed('name')} value={m.name} onChange={e => setM({ name: e.target.value })} /></div>
-                  <div className="field"><label htmlFor="f-cat">Category</label><input id="f-cat" className={'input' + changed('category')} value={m.category} onChange={e => setM({ category: e.target.value })} /></div>
-                </div>
-                <div className="field"><label htmlFor="f-desc">Description</label><textarea id="f-desc" className={'ta' + changed('description')} rows="2" value={m.description} onChange={e => setM({ description: e.target.value })} /></div>
-                <div className="field"><label htmlFor="f-dis">When to use · how it differs</label><textarea id="f-dis" className={'ta' + changed('disambig')} rows="2" value={m.disambig} placeholder="e.g. Use for revenue retention including expansion; for logo counts see Logo Churn Count." onChange={e => setM({ disambig: e.target.value })} /></div>
-              </>) : (<>
-                <div className="field"><label>Description</label><p className="readtext">{m.description || <span className="muted">No description yet.</span>}</p></div>
-                <div className="field"><label>When to use · how it differs</label><p className="readtext">{m.disambig || <span className="muted">Not written yet.</span>}</p></div>
-              </>)}
-            </section>
+            <DefinitionSection m={m} editing={editing} setM={setM} changed={changed} />
 
-            <section className="section">
-              <div className="sechead"><h3>Implementations · {m.pis.length}</h3><div className="rule" /></div>
-              <div className="pis">
-                {m.pis.map(p => (
-                  <PiRow key={p.id} p={p} orig={orig.pis.find(o => o.id === p.id)} open={openPi === p.id} showDefault={m.pis.length > 1} editing={editing}
-                    onToggle={() => setOpenPi(openPi === p.id ? null : p.id)} onChange={patch => setPi(p.id, patch)}
-                    onRemove={() => setM({ pis: m.pis.filter(x => x.id !== p.id) })}
-                    onDefault={() => setM({ pis: m.pis.map(x => ({ ...x, isDefault: x.id === p.id })) })} />
-                ))}
-                {!m.pis.length && <div className="empty" style={{ padding: '16px 14px' }}>No implementations yet.{editing ? ' Add the SQL that computes this metric.' : ''}</div>}
-                {editing && <button className="addpi" onClick={addPi}>+ Add implementation</button>}
-              </div>
-            </section>
+            <PiSection m={m} orig={orig} editing={editing} setM={setM} openPi={openPi} setOpenPi={setOpenPi} />
           </div>
         )}
         {nav === 'metrics' && m && editing && (
