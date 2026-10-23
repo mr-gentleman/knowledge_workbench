@@ -1,7 +1,8 @@
 # V1 journeys — UX contracts
 
 #chris #claude 2026-10-23. Rules and vocabulary: [../ux-principles.md](../ux-principles.md).
-Status: J1 drafted for #chris review; J2/J3 outlined.
+Status: J1 drafted for #chris review; J2/J3 outlined. 2026-10-23: validation wording changed
+to say what the check established (`✓ Runs · N-row preview · rev N`, not `✓ Validated`).
 
 ## V1 shape
 
@@ -11,7 +12,8 @@ Status: J1 drafted for #chris review; J2/J3 outlined.
   (empty → editing → viewing). Polish concentrates there.
 - **Validation:** runs only when the SQL changed; a pass sticks to that SQL revision. Show a
   row preview. Periodic re-checks (CHECK-05) are later.
-- **Promotion gate (human source, default):** SQL validated, description present, "when to use"
+- **Promotion gate (human source, default):** SQL runs on the current revision (`✓ Runs`),
+  description present, "when to use"
   present. Fact-table linkage waits until fact tables are in the app. Any author may promote
   once the gate passes.
 
@@ -22,11 +24,11 @@ Status: J1 drafted for #chris review; J2/J3 outlined.
 | # | Question | Contract |
 |---|---|---|
 | 1 | Accomplish | Confirm whether the metric exists; if not, leave a candidate with working SQL. |
-| 2 | Understand first | Results show name, knowledge pill, validated mark, and the first line of the description — enough to recognize a match without opening it. Exact-name matches are flagged. |
+| 2 | Understand first | Results show name, knowledge pill, run mark (`✓ Runs` / `✗ SQL failed`), and the first line of the description — enough to recognize a match without opening it. Exact-name matches are flagged. |
 | 3 | Obvious next action | List screen opens with search focused. No results → primary **Create "Net New ARR"**. A quiet **New metric** is always available. |
-| 4 | What changes | Create opens the metric page in editing, name prefilled. Save → header shows `✓ Saved · rev 1`, toast, `Candidate` pill; the record appears **selected** in the list (search cleared if it would hide it). If SQL was entered, validation runs: `Validating…` → `✓ Validated` + preview, or `✗ SQL failed` + message. |
+| 4 | What changes | Create opens the metric page in editing, name prefilled. Save → header shows `✓ Saved · rev 1`, toast, `Candidate` pill; the record appears **selected** in the list (search cleared if it would hide it). If SQL was entered, validation runs: `Running…` → `✓ Runs · 10-row preview · rev 1` + preview, or `✗ SQL failed · rev 1` + message. |
 | 5 | Hesitate / fail | Leaving with unsaved edits asks first (Keep editing default). Save failure keeps every input and says why. Exact duplicate name → inline, non-blocking warning linking to the existing record. Double submit creates one record (REL-10). Failed validation ≠ failed save. |
-| 6 | Done | Header reads name · `Candidate` · `✓ Validated` · `✓ Saved`. A readiness line shows what promotion still needs, or **Promote** if ready (J3). |
+| 6 | Done | Header reads name · `Candidate` · `✓ Saved · rev 1`, and the SQL reads `✓ Runs · N-row preview · rev 1`. Nothing claims the metric is business-correct. A readiness line shows what promotion still needs, or **Promote** if ready (J3). |
 
 **Decisions for #chris** (defaults recommended):
 
@@ -38,11 +40,11 @@ Status: J1 drafted for #chris review; J2/J3 outlined.
 | D4 | After first save: stay in editing or switch to viewing? | Switch to viewing — confirms the save visibly and shows the record as others will see it. |
 
 **Acceptance checks (walkthrough):**
-- Typing a query filters results as you type; a result shows name, pill, validated mark, description line.
+- Typing a query filters results as you type; a result shows name, pill, run mark, description line.
 - Zero results shows **Create "<query>"**; clicking it opens the page with the name prefilled.
 - After Save, without scrolling: `✓ Saved · rev 1` is visible in the header and a toast appears.
 - The new record is selected in the list even if a search was active.
-- With valid SQL: `✓ Validated` and a ≤10-row preview appear. With broken SQL: `✗ SQL failed`, the
+- With valid SQL: `✓ Runs · N-row preview · rev 1` and a ≤10-row preview appear. With broken SQL: `✗ SQL failed · rev 1`, the
   message, the SQL intact, and the record still shows `✓ Saved`.
 - An exact duplicate name shows a warning with a link; Save still works.
 - Navigating away mid-edit asks first; **Keep editing** leaves everything as it was.

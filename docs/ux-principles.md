@@ -22,7 +22,7 @@ Draft — #chris refines. Reference points: **Linear, Raycast, Vercel dashboard,
 - **Restraint.** One typeface (system UI or Inter) plus one monospace for SQL. A small type
   scale (title / section / body / caption). Cool slate neutrals with **one** cool accent
   (#chris's palette: cool summer with a wintry lean). Color carries meaning — status — not decoration.
-- **Calm, quick motion.** Subtle transitions on state changes (saved, validated); nothing that
+- **Calm, quick motion.** Subtle transitions on state changes (saved, ran); nothing that
   makes you wait.
 - **Keyboard-friendly.** ⌘K / `/` to search, ⌘S to save, Esc to cancel.
 - **Anti-patterns:** default-Streamlit look; stacked colored banners; walls of form fields;
@@ -32,7 +32,7 @@ Draft — #chris refines. Reference points: **Linear, Raycast, Vercel dashboard,
 
 1. **Orientation** — I can tell which record is open and whether I'm viewing or editing.
 2. **Persistence** — unsaved / saving / saved / failed is always visible; never scrolled away.
-3. **Knowledge status ≠ save status** — *saved* is not *validated* is not *canon*. Different
+3. **Knowledge status ≠ save status** — *saved* is not *runs* is not *canon*. Different
    words, styles, and places on the page.
 4. **Recovery** — nothing discards my work without saying so. Destructive actions are red and
    never the primary button.
@@ -48,7 +48,7 @@ Use these exact words everywhere.
 | Kind | States | Where / how |
 |---|---|---|
 | Save | `● Unsaved changes` · `Saving…` · `✓ Saved · rev N · just now` · `Couldn't save — <reason>` | Small text, right side of the sticky record header; plus a corner toast on save/failure |
-| Validation | `Not validated` · `Validating…` · `✓ Validated` · `✗ SQL failed` | Next to the SQL, with the preview or error beneath |
+| Validation | `Not run` · `Running…` · `✓ Runs · N-row preview · rev N` · `✗ SQL failed · rev N` | Next to the SQL, with the preview or error beneath |
 | Knowledge | `Candidate` · `Canon` | Pill next to the title; canon uses the accent |
 
 ## Patterns
@@ -63,12 +63,17 @@ saves. A successful save never clears the page's context.
 **Validation** — runs only when the SQL changed; a pass sticks to that SQL revision. Show a
 row preview on pass; on failure show Snowflake's message in plain form and keep the SQL.
 A failed validation never makes the save look failed (rule 3).
+The label says what the check established and nothing more: `✓ Runs` means the SQL executed
+on Snowflake and returned the preview, for that revision. It does **not** mean the metric is
+business-correct. That is a separate judgment by a person, never implied by a passing run.
+Avoid "validated" or "verified" in the UI for this state. (From
+[ux-exemplars.md](ux-exemplars.md) P25 and the Astra brief, 2026-10-23.)
 
 **Empty states** — say what goes here and offer the action: a search with no results offers
 **Create "<query>"**; a metric with no SQL offers **Add SQL**.
 
 **Disabled actions** — visible, with the reason beside them
-(`✓ SQL validated · ✗ "When to use" missing`), not hidden.
+(`✓ SQL runs · ✗ "When to use" missing`), not hidden.
 
 **Leaving with unsaved edits** — in-app navigation asks *"Discard unsaved changes?"* with
 Keep editing as the default. (Browser reload/close can't always be intercepted; say so in the
