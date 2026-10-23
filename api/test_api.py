@@ -4,6 +4,7 @@ import unittest
 from unittest import mock
 
 from fastapi.testclient import TestClient
+from snowflake.snowpark import Row
 
 from api import main, spcs
 
@@ -50,6 +51,15 @@ class ApiTest(unittest.TestCase):
     def test_no_change_passes_through(self):
         self.save.return_value = {"outcome": "no_change", "candidate_id": 7, "candidate_revision": 3}
         self.assertEqual(self.post(**{spcs.USER_HEADER: "CLENZINI"}).json()["status"], "no_change")
+
+
+class FactTablesTest(unittest.TestCase):
+    def test_list_has_lower_case_keys(self):
+        rows = [Row(TABLE_NAME="AC.FINANCE.MRR", GRAIN="one row per account per day", STATUS="active")]
+        with mock.patch.object(main.repo, "list_fact_tables", return_value=rows):
+            r = TestClient(main.api).get("/api/fact-tables")
+        self.assertEqual(r.json(), [{"table_name": "AC.FINANCE.MRR", "grain": "one row per account per day",
+                                     "status": "active"}])
 
 
 class ConnectionTest(unittest.TestCase):

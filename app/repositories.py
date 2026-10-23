@@ -66,6 +66,23 @@ def reserve_calc_id() -> int:
     return query(f"SELECT {SCHEMA}.seq_calc_id.NEXTVAL")[0][0]
 
 
+# ── fact tables (fact_table_core) ───────────────────────────────────────────
+
+FACT_TABLE_LIMIT = 500  # the whole registry (61 legacy tables); revisit if it outgrows this
+
+
+def list_fact_tables():
+    """Every fact table, active first, by name. table_name is the 3-part AC.SCHEMA.TABLE key."""
+    return query(
+        f"""SELECT table_name_full AS table_name, display_name, description, disambig, gotchas,
+                   required_filter, grain, primary_key, time_dimension, department, source, status,
+                   original_author, revision_no, updated_by, updated_at
+            FROM {SCHEMA}.fact_table_core
+            ORDER BY status = 'active' DESC, table_name_full
+            LIMIT {FACT_TABLE_LIMIT}"""
+    )
+
+
 # ── the one write path ──────────────────────────────────────────────────────
 
 _SAVE_METRIC = f"CALL {SCHEMA}.save_metric(?)"

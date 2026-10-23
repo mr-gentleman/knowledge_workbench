@@ -67,6 +67,12 @@ def get_candidate(candidate_id: int):
     return row
 
 
+@api.get("/api/fact-tables")
+def list_fact_tables():
+    """The fact-table registry, lower-case keys; table_name is AC.SCHEMA.TABLE."""
+    return [{k.lower(): v for k, v in r.as_dict().items()} for r in repo.list_fact_tables()]
+
+
 @api.post("/api/metrics/save")
 def save_metric(body: MetricSave, request: Request):
     actor = spcs.viewer(request)
