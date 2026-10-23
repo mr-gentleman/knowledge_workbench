@@ -30,7 +30,9 @@ Everything lives in `AI_PLATFORM.WORKBENCH`. The app role has no grants on
    re-attaches the PyPI artifact repository) — that connection uses role
    `WORKBENCH_APP`, so the app stays owned by it. Needs Snowflake CLI >= 3.30.
 3. Local dev: add a `workbench` connection to `~/.snowflake/connections.toml`, then
-   `streamlit run streamlit_app.py`.
+   `streamlit run streamlit_app.py`. Python environment (needs [uv](https://docs.astral.sh/uv/)):
+   `uv venv --python 3.11 .venv && uv pip install --python .venv -r pyproject.toml`.
+   Tests and the health readout then run with `scripts/health.sh`.
 
 ## Status
 
