@@ -1,10 +1,19 @@
+## Where this fits
+<!-- 2–4 lines for the big picture:
+     Milestone: plan-of-record step or V1 phase in docs/features.md, and Release A or B.
+     Problem it answers: the user or ops problem, in plain words (e.g. "two SMEs editing one
+     metric could silently overwrite each other").
+     Moves us: what is now possible or safe that wasn't, and what it unblocks next. -->
+
 ## What Chris should look at
-<!-- 1–3 specific things, with file:line. E.g. "the SQL in app/repositories.py:40",
-     "does the Save → History flow match how an SME would use it". Not "everything". -->
+<!-- Only what's worth your time as first user / owner: 1–3 items, each one of
+     read (file:line) / try (exact steps → expected result) / decide (a tradeoff to approve).
+     If nothing is high value, write "Nothing for you this time" and stop.
+     mid/high tier: include one real example walked from input to output — where data
+     changes, where permissions apply, what happens on failure, which test proves it. -->
 1.
 
-<!-- mid/high tier: walk one real example from input to output — where data changes, where
-     permissions apply, what happens on failure, and which test proves it. -->
+**Not verified:** <!-- what nobody has checked yet, or "nothing open" -->
 
 ## What changed and why
 <!-- Backlog ID(s) and a few sentences a non-engineer can follow. -->
