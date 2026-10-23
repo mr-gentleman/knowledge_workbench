@@ -84,7 +84,9 @@ editor rather than pretend.)
    "Product focus").
 4. **Walkthrough (post-code)** — #chris runs the journey with realistic content against the
    acceptance checks ("I clicked Save — show me how I know it worked"). Gaps are fixed in the
-   same milestone.
+   same milestone. The agent writes the session as a short task script with structured
+   questions in `docs/walkthroughs/<date>-<topic>.md`; #chris answers in the file; the agent
+   analyzes the answers and files or implements the fixes.
 
 Contract questions: (1) What is the user trying to accomplish? (2) What must they understand
 before acting? (3) What is the obvious next action? (4) What changes after it? (5) What if they
