@@ -15,6 +15,13 @@ Standing engineering philosophy and coding instructions: [AGENTS.md](../AGENTS.m
 - Evidence labels below distinguish **code observation**, **suspected defect**, **documented verification**, and **planned feature**.
 - This file is the current task/status source of truth. Design rationale stays in [app-design-notes.md](app-design-notes.md); import constraints stay in [open-items.md](open-items.md). Their older next-step lists are historical. If moved to an issue board later, link the issues here and explicitly choose one status source.
 
+## Plan of record — 2026-10-23 (front end: cut over to React; amends step 3 below)
+
+**#chris decided, DEC-018.** V1's front end is React on SPCS, gated on the spike (FE-01).
+Streamlit UI is frozen at bug fixes and stays live until cutover. Backend work (repositories,
+services, one-call save, the SQL-run model) continues unchanged. UX items below are built once,
+in React. Sequence: FE-01 gate → FE-02 J1 in React to parity → FE-03 cutover.
+
 ## Plan of record — 2026-10-23 (product focus; amends step 4 below)
 
 **#chris #claude**, from a GPT Astra product-philosophy discussion. See "Product focus" in [AGENTS.md](../AGENTS.md).
@@ -153,6 +160,14 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | FIND-03 | TODO | P3 / Next | Add semantic search and duplicate suggestions using the same matcher. Warn without blocking; show the matching definition, not an invented duplicate probability. | #existing — planned feature |
 | FIND-04 | TODO | P3 / Next | Filter by department and lifecycle status. | #existing — planned feature |
 | FIND-05 | TODO | P3 / Later | Add tag-based browse filters only when a defined tag workflow and consumer exist. | #existing — deferred |
+
+## Front end (DEC-018)
+
+| ID | Status | Priority / scope | Task and acceptance check | Origin / evidence |
+|---|---|---|---|---|
+| FE-01 | DOING | P1 / V1 | SPCS spike gate. Pass = Snowflake login works in the container, a write is attributed to the signed-in user (not a service account), and one read + one write are fast enough for search-as-you-type and save. Record the measurements. Fail on attribution → reopen DEC-018. | #chris #claude 2026-10-23 — spike session in flight (lane C) |
+| FE-02 | TODO | P2 / V1 | J1 in React against the existing backend: list with search-as-you-type, create, metric page, save status, SQL run + preview. Done when J1's acceptance checks in plans/v1-journeys.md pass. Patterns: ux-exemplars.md P1, P8, P9, P23, P25. | #chris #claude 2026-10-23 — after FE-01 |
+| FE-03 | TODO | P2 / V1 | Cutover: deploy React as the Workbench, retire the Streamlit app, update AGENTS.md stack/layers and the deploy script. | #chris #claude 2026-10-23 — after FE-02 |
 
 ## Entry / editing UX
 

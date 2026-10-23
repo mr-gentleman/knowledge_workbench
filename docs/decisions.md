@@ -242,3 +242,34 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   Analytics after the team rename; misc → Other). Old lowercase values map on read; no migration.
 - Consequences: the Oracle categorizer enum (finance/…/bi_meta/misc) differs — map at serving time
   or rename there too (cross-tool TODO).
+
+## DEC-018 — Cut the front end over to React on SPCS, gated on the spike
+
+- Date: 2026-10-23. Origin: #chris (decided); recommendation and write-up by #claude.
+- Status: decided; gated on the SPCS spike (FE-01). Supersedes the "Streamlit MVP, then compare
+  React" path in `codex/frontend-independent-plan` (its DEC-008/DEC-009, unmerged) and makes
+  DEC-016's Streamlit search an interim measure.
+- Context: Goal 4 in ux-principles.md ("fun, cool, modern" is a requirement, not polish), and V1
+  is the SMEs' first impression (DEC-012). The UX pattern library (`docs/ux-exemplars.md` on
+  `claude/ux-exemplars`) costed each pattern. The ones that carry that bar are medium to hard in
+  Streamlit (reruns, CSS hacks) and small in React: search suggestions with row actions and ⌘K,
+  editing in place, a sticky SQL pane beside the definition, error markers in the SQL editor,
+  skeleton loading, and quiet inline filters.
+- Decision: React on SPCS becomes the V1 front end. Gate (FE-01), all three must pass: (1) Snowflake
+  login works in the container; (2) writes are attributed to the signed-in user, not a service
+  account; (3) one read and one write are fast enough for search-as-you-type and save. If
+  attribution fails, React on SPCS is off and this decision is reopened, not quietly downgraded.
+- Transition, so there's never a gap:
+  1. **Freeze Streamlit UI** at bug fixes. It stays live as the working tool until cutover.
+  2. **Backend work continues unchanged**: repositories, services, the one-call save procedure,
+     the revision and SQL-run model, conflict handling. It's front-end independent and carries over.
+  3. **Build J1 in React** (find → create → save → SQL run) against the same backend (FE-02).
+     The parity bar is J1's acceptance checks in v1-journeys.md.
+  4. **Cut over** when React passes them; retire the Streamlit app (FE-03).
+- Alternatives: stay on Streamlit for V1 and revisit later. That suits a V1 used only by
+  BI kicking tires, but V1 is the SME-facing first impression, and Streamlit UI work would be
+  rebuilt anyway.
+- Consequences: AGENTS.md's stack and layer table (Streamlit in Snowflake, `streamlit_app.py` as the
+  page layer) and `scripts/deploy.sh` change at cutover. Streamlit UI items (UX-03, UX-06, UX-07, UX-09
+  in Streamlit) are done once, in React. Work already in flight in Streamlit is kept only where it
+  is backend or will ship before cutover.
