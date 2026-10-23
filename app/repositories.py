@@ -23,8 +23,8 @@ def list_candidates(search: str = ""):
     """Most recently updated first. The page filters this list as you type; search here
     only once the list is capped."""
     return query(
-        f"""SELECT candidate_id, full_name, description, disambig, category, status,
-                   promoted_metric_id, original_author, updated_by, updated_at
+        f"""SELECT candidate_id, full_name, description, disambig, department, category, status,
+                   revision_no, source, promoted_metric_id, original_author, updated_by, updated_at
             FROM {SCHEMA}.metric_candidate
             WHERE ? = '' OR (full_name || ' ' || COALESCE(description, '') || ' ' || COALESCE(disambig, '')) ILIKE '%' || ? || '%'
             ORDER BY updated_at DESC
