@@ -145,9 +145,9 @@ if selected is None:
                 create.update(token=uuid.uuid4().hex, generation=create["generation"] + 1, payload=None)
                 st.session_state["just_created"] = prior
                 st.session_state["edit_feedback"] = services.Outcome(
-                    True, f"Saved earlier as #{prior}.", prior, warnings=[
+                    True, f"Saved earlier as #{prior}.", prior, warnings=[(
                         f"Your earlier save did go through as #{prior}. It's open now — "
-                        "apply your newer changes here."])
+                        "apply your newer changes here.")])
                 forget_recent()
                 st.rerun()
             # It didn't land, so the token is unused: the new entries can take it.
