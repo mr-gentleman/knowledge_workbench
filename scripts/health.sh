@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-screen health readout: size, complexity, lint, tests, docs ratio, feature
 # maturity, and the change since the last run. Read-only except output/health-last.txt.
-# Needs .venv (for the tests) and uv; ruff/radon run via uvx at pinned versions, so
+# Needs .venv (README.md → Local dev) and uv; ruff/radon run via uvx at pinned versions, so
 # nothing is added to pyproject.toml, which ships with the app.
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -14,8 +14,10 @@ MAX_CC=10      # cyclomatic complexity per function
 LAST=output/health-last.txt
 RUFF="uvx -q ruff@0.17.0"
 RADON="uvx -q radon@6.0.1"
+[ -x "$PY" ] || { echo "No .venv — see README.md → Local dev." >&2; exit 1; }
 NOW=$(mktemp)
 metric() { echo "$1 $2" >> "$NOW"; printf '  %-22s %s\n' "$1" "$2"; }
+fail() { echo "$1" >> "$NOW.fail"; echo "  ! FAILED: $1"; }
 lines() { [ $# -gt 0 ] && cat "$@" | wc -l | tr -d ' ' || echo 0; }
 
 CODE=$(git ls-files '*.py' '*.sql' ':!tests/')
@@ -45,16 +47,22 @@ cc = sorted(b['complexity'] for b in fns) or [0]
 print(f'functions {len(fns)}'); print(f'max_complexity {cc[-1]}')
 print(f\"over_limits {sum(b['complexity'] > $MAX_CC or b['endline'] - b['lineno'] >= $MAX_FUNC for b in fns)}\")
 " | while read -r k v; do [ "$k" = "!" ] && echo "  ! $v" || metric "$k" "$v"; done
+  grep -q '^functions ' "$NOW" || fail "radon produced no result"
 else echo "  (skipped: uv not installed)"; fi
 
 echo "== Lint (ruff)"
 if command -v uvx >/dev/null; then
-  metric lint_findings "$($RUFF check --quiet --output-format concise $(git ls-files '*.py') | grep -c ':')"
+  lint=$($RUFF check --quiet --output-format concise $(git ls-files '*.py') 2>&1); rc=$?
+  n=$(echo "$lint" | grep -cE ':[0-9]+:[0-9]+: ')
+  # 0 = clean; 1 with findings listed = problems found; anything else = ruff/uvx did not run.
+  { [ $rc -eq 0 ] || { [ $rc -eq 1 ] && [ "$n" -gt 0 ]; }; } && metric lint_findings "$n" \
+    || fail "ruff did not run (exit $rc): $(echo "$lint" | head -1)"
 else echo "  (skipped: uv not installed)"; fi
 
 echo "== Tests"
 out=$($PY -m unittest discover -s tests 2>&1 | tail -3)
-metric tests_run "$(echo "$out" | sed -n 's/^Ran \([0-9]*\).*/\1/p')"
+run=$(echo "$out" | sed -n 's/^Ran \([0-9]*\).*/\1/p')
+[ -n "$run" ] && metric tests_run "$run" || fail "tests did not run: $(echo "$out" | tail -1)"
 metric tests_passing "$(echo "$out" | grep -q '^OK' && echo yes || echo NO)"
 
 echo "== Ratios (per 100 code lines)"
@@ -73,5 +81,9 @@ if [ -f "$LAST" ]; then
     new=$(awk -v k="$k" '$1==k{print $2}' "$NOW")
     [ -n "$new" ] && [ "$new" != "$old" ] && printf '  %-22s %s -> %s\n' "$k" "$old" "$new"
   done
+fi
+if [ -f "$NOW.fail" ]; then
+  echo "Some measurements failed; snapshot not saved, so the next diff stays honest."
+  rm -f "$NOW" "$NOW.fail"; exit 1
 fi
 mkdir -p output && { date '+%Y-%m-%d %H:%M'; cat "$NOW"; } > "$LAST" && rm -f "$NOW"
