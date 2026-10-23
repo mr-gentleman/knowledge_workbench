@@ -1,25 +1,90 @@
-"""Snowflake session + trusted viewer identity."""
+"""Snowflake session, the process-wide lock, and trusted viewer identity."""
+import json
+import logging
 import os
 import threading
+from contextlib import contextmanager
 
 import streamlit as st
 
 SCHEMA = "AI_PLATFORM.WORKBENCH"
+log = logging.getLogger(__name__)
+
+
+class ConnectionQuarantined(RuntimeError):
+    """A transaction's outcome was uncertain and the connection could not be proven clean."""
 
 
 def session():
     # Container runtime + local dev both use st.connection (local: ~/.snowflake/connections.toml).
+    # In SiS this is the app's one active session: it cannot be reset, only cleaned (_heal).
     conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
     return conn.session()
 
 
 @st.cache_resource
+def _state() -> dict:
+    """One per app process (cache_resource survives reruns). Every viewer shares one
+    Snowflake connection, so an open transaction is visible to — and joinable by — any
+    other statement on it. See docs/decisions.md DEC-004, DEC-007."""
+    return {"lock": threading.RLock(), "dirty": False, "tag": "", "tag_ok": True}
+
+
 def db_lock() -> threading.RLock:
-    """One lock per app process (cache_resource survives reruns, even in the single-file build).
-    Every viewer shares one Snowflake connection, so an open transaction is visible to —
-    and joinable by — any other statement on it. Hold this for every transaction and for
-    every read that loads an editable baseline. See docs/decisions.md DEC-004."""
-    return threading.RLock()
+    """Held for every database operation, only while executing/fetching (DEC-007)."""
+    return _state()["lock"]
+
+
+def mark_dirty():
+    """A transaction's outcome is uncertain; nothing else runs until _heal proves it clean."""
+    _state()["dirty"] = True
+
+
+def is_dirty() -> bool:
+    return _state()["dirty"]
+
+
+def _heal(s):
+    # Called under the lock. ROLLBACK is harmless when no transaction is open.
+    try:
+        s.sql("ROLLBACK").collect()
+        open_txn = s.sql("SELECT CURRENT_TRANSACTION()").collect()[0][0]
+    except Exception as exc:
+        raise ConnectionQuarantined("Database connection is not usable yet; try again shortly.") from exc
+    if open_txn is not None:
+        raise ConnectionQuarantined(f"Transaction {open_txn} is still open; try again shortly.")
+    _state()["dirty"] = False
+    log.warning("Connection recovered after an uncertain transaction.")
+
+
+@contextmanager
+def locked_session():
+    """The only way to reach the database: under the lock, on a proven-clean connection."""
+    with db_lock():
+        s = session()
+        if _state()["dirty"]:
+            _heal(s)
+        if _state()["tag"]:
+            set_tag(s, None)  # ops always clear their tag; one still set means that clear failed
+        yield s
+
+
+def set_tag(s, tag: dict | None):
+    """Best effort: attribution must never block work. Skipped when unchanged; None unsets,
+    so reads after a write aren't attributed to that write's operation."""
+    state = _state()
+    text = json.dumps(tag, sort_keys=True) if tag else ""
+    if not state["tag_ok"] or state["tag"] == text:
+        return
+    try:
+        s.query_tag = text
+        state["tag"] = text
+    except Exception:
+        # Never set successfully → treat as unsupported here and stop trying. Otherwise a
+        # tag may be outstanding: keep state["tag"] so the next locked_session retries the clear.
+        if not state["tag"] and text:
+            state["tag_ok"] = False
+        log.exception("QUERY_TAG update failed")
 
 
 def viewer() -> str:
@@ -35,4 +100,5 @@ def viewer() -> str:
 
 
 def query(sql: str, params: list | None = None):
-    return session().sql(sql, params=params or []).collect()
+    with locked_session() as s:
+        return s.sql(sql, params=params or []).collect()

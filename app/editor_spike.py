@@ -9,7 +9,7 @@ import importlib.metadata as md
 
 import streamlit as st
 
-from app.db import db_lock, session
+from app.db import locked_session
 
 SAMPLE_SQL = """-- Paste a real 80-line Finance query (e.g. NRR) over this.
 WITH base AS (
@@ -47,8 +47,8 @@ def _saved(label: str, text: str | None):
 def _compile(sql: str):
     """EXPLAIN only compiles — no rows read, no DML executed."""
     try:
-        with db_lock():
-            session().sql(f"EXPLAIN USING TEXT {sql.strip().rstrip(';')}").collect()
+        with locked_session() as s:
+            s.sql(f"EXPLAIN USING TEXT {sql.strip().rstrip(';')}").collect()
         st.success("Compiles OK")
     except Exception as e:  # surface the Snowflake error as-is
         st.error(str(e).splitlines()[0] if str(e) else repr(e))
