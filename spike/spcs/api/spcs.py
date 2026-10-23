@@ -25,6 +25,7 @@ def _connect(token: str):
         authenticator="oauth", token=token,
         database="AI_PLATFORM", schema="WORKBENCH", warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
         client_session_keep_alive=True,
+        paramstyle="qmark",  # app/repositories.py binds with ?, as st.connection's session does
     )
 
 

@@ -54,5 +54,13 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(r.status_code, 501)
 
 
+class ConnectionTest(unittest.TestCase):
+    def test_spcs_connection_binds_qmark(self):
+        with mock.patch.object(spcs.snowflake.connector, "connect") as connect, \
+             mock.patch.dict("os.environ", {"SNOWFLAKE_HOST": "h", "SNOWFLAKE_ACCOUNT": "a", "SNOWFLAKE_WAREHOUSE": "w"}):
+            spcs._connect("t")
+        self.assertEqual(connect.call_args.kwargs["paramstyle"], "qmark")
+
+
 if __name__ == "__main__":
     unittest.main()
