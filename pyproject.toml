@@ -7,7 +7,6 @@ version = "0.1.0"
 requires-python = "~=3.11.0"
 dependencies = [
     "streamlit[snowflake]==1.66.1",  # pinned to what the live app runs (2026-10-22)
-    # SQL-editor spike (app/editor_spike.py, sidebar toggle) — remove the loser.
+    # SQL editor (chosen 2026-10-22; app/editor_spike.py is its options playground).
     "streamlit-code-editor==0.1.22",
-    "streamlit-ace==0.1.1",
 ]

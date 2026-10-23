@@ -1,10 +1,9 @@
 """Throwaway SQL-editor spike — sidebar toggle 'SQL editor spike'. No DB writes.
 
-Compares streamlit-code-editor and streamlit-ace against
-st.text_area. "Save" only echoes what Python received, to expose lost last
-keystrokes. (streamlit-monaco was dropped: it loads Monaco from cdn.jsdelivr.net,
-which SiS blocks, so it hangs on "Loading...".) Ctrl+Enter in code-editor compiles the SQL with EXPLAIN (never runs
-it) as WORKBENCH_APP — so tables that role can't see fail as "not authorized".
+Chosen editor: streamlit-code-editor (Ace). This page is a display-options
+playground. "Save" only echoes what Python received. (streamlit-ace lost the
+comparison; streamlit-monaco loads Monaco from cdn.jsdelivr.net, which SiS
+blocks.) Ctrl+Enter compiles the SQL with EXPLAIN (never runs it) as WORKBENCH_APP — so tables that role can't see fail as "not authorized".
 """
 import importlib.metadata as md
 
@@ -55,50 +54,42 @@ def _compile(sql: str):
         st.error(str(e).splitlines()[0] if str(e) else repr(e))
 
 
-def render():
-    st.title("SQL editor spike")
-    st.caption(
-        f"streamlit {st.__version__} · streamlit-code-editor {_version('streamlit-code-editor')} · "
-        f"streamlit-ace {_version('streamlit-ace')} · "
-        f"reruns this session: "
-        f"{st.session_state.setdefault('spike_runs', 0)}"
-    )
-    st.session_state["spike_runs"] += 1
-    with st.expander("Checklist"):
-        st.markdown(
-            "- Highlighting while typing; Tab/Shift-Tab; line numbers; undo/redo; find\n"
-            "- Paste a real 80-line query: no lost lines, no lag; copy back out and run in Snowsight\n"
-            "- Type, then click Save **without clicking away** — is the last edit in 'Last line'?\n"
-            "- Does the rerun counter jump while typing?\n"
-            "- Click another widget — does each editor keep content and cursor?"
-        )
+THEMES = ["default", "light", "dark", "contrast"]
+ACE_THEMES = ["(none)", "sqlserver", "github", "github_dark", "chrome", "xcode", "tomorrow",
+              "tomorrow_night", "monokai", "dracula", "one_dark", "nord_dark", "solarized_light",
+              "solarized_dark", "cloud_editor", "cloud_editor_dark", "gruvbox"]
 
-    a, b, c = st.columns(3)
-    with a:
-        st.subheader("streamlit-code-editor")
-        st.caption("Ctrl+Enter = compile check (EXPLAIN)")
-        try:
-            from code_editor import code_editor
-            resp = code_editor(SAMPLE_SQL, lang="sql", height=[20, 30], key="ce")
-            _saved("code-editor", (resp or {}).get("text") or None)
-            st.caption(f"Last response type: {(resp or {}).get('type') or '(none)'}")
-            # Compile once per Ctrl+Enter, not on every later rerun.
-            if resp and resp.get("type") == "submit" and resp.get("id") != st.session_state.get("ce_done"):
-                st.session_state["ce_done"] = resp.get("id")
-                _compile(resp.get("text") or "")
-        except ImportError:
-            st.error("streamlit-code-editor not installed")
-    with b:
-        st.subheader("streamlit-ace")
-        try:
-            from streamlit_ace import st_ace
-            live = st.toggle("auto_update (send on every change)", key="ace_live")
-            text = st_ace(SAMPLE_SQL, language="sql", keybinding="vscode",
-                          auto_update=live, height=480, key=f"ace:{live}")
-            _saved("ace", text)
-        except ImportError:
-            st.error("streamlit-ace not installed")
-    with c:
-        st.subheader("st.text_area (baseline)")
-        text = st.text_area("SQL", SAMPLE_SQL, height=480, key="ta", label_visibility="collapsed")
-        _saved("text_area", text)
+
+def render():
+    st.title("SQL editor — display options")
+    st.caption(f"streamlit {st.__version__} · streamlit-code-editor {_version('streamlit-code-editor')}")
+    from code_editor import code_editor
+
+    opts, ed = st.columns([1, 3])
+    with opts:
+        theme = st.selectbox("Base theme", THEMES, key="o_theme")
+        ace = st.selectbox("Color theme (overrides base)", ACE_THEMES, key="o_ace")
+        font = st.slider("Font size", 11, 20, 14, key="o_font")
+        lines = st.slider("Height (lines)", 10, 50, (20, 30), key="o_h")
+        wrap = st.toggle("Wrap long lines", key="o_wrap")
+        gutter = st.toggle("Line numbers", True, key="o_gutter")
+        active = st.toggle("Highlight current line", True, key="o_active")
+        margin = st.toggle("Print margin (80-col line)", False, key="o_margin")
+        tab = st.radio("Tab size", [2, 4], index=1, horizontal=True, key="o_tab")
+    with ed:
+        st.caption("Ctrl+Enter = compile check (EXPLAIN). Changing an option keeps your text.")
+        props = {"theme": ace} if ace != "(none)" else {}
+        options = {"fontSize": font, "wrap": wrap, "showGutter": gutter, "tabSize": tab,
+                   "highlightActiveLine": active, "showPrintMargin": margin}
+        # Options are part of the key so the editor remounts with them; feed back the
+        # last text so a remount doesn't reset what you typed.
+        sig = f"{theme}|{ace}|{font}|{lines}|{wrap}|{gutter}|{active}|{margin}|{tab}"
+        resp = code_editor(st.session_state.get("ce_text", SAMPLE_SQL), lang="sql", theme=theme,
+                           height=list(lines), props=props, options=options, key=f"ce:{sig}")
+        if resp and resp.get("text"):
+            st.session_state["ce_text"] = resp["text"]
+        _saved("code-editor", (resp or {}).get("text") or None)
+        # Compile once per Ctrl+Enter, not on every later rerun.
+        if resp and resp.get("type") == "submit" and resp.get("id") != st.session_state.get("ce_done"):
+            st.session_state["ce_done"] = resp.get("id")
+            _compile(resp.get("text") or "")
