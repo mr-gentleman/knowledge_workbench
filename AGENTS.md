@@ -117,6 +117,13 @@ handling, promotion, serving of last-passing revisions, and rollback.
   `Agent: human / chris`. Git history is the changelog — don't keep a separate one. View it with
   `git log --format='%ad  %s  %(trailers:key=Agent,valueonly,separator=)' --date=short`.
   Optional: `git config core.hooksPath .githooks` prints a reminder when it's missing; it never blocks.
+- **Astra reviews: ask Chris first, every time; one call, no ping-pong.** Each run costs
+  Snowflake credits. Before running `scripts/review.sh <branch> --yes`, show Chris the
+  branch, the dry-run size (`scripts/review.sh <branch>` without `--yes`) and why it needs
+  review, then wait for "go ahead". Approval covers that one run only. Review mid/high-risk
+  branches only (PR template tiers), once, when the branch is finished. Afterwards the author
+  fixes confirmed findings and answers the rest in the review file; disagreements go to Chris.
+  No second Astra pass unless Chris asks for one.
 - Never commit secrets — `.gitignore` excludes `*secret*`, `.env`, `.snowflake/`.
 - Record meaningful architecture/code decisions in [docs/decisions.md](docs/decisions.md):
   date, origin, context, rationale, alternatives, consequences; link tasks and commits.
