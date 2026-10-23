@@ -124,6 +124,10 @@ handling, promotion, serving of last-passing revisions, and rollback.
   branches only (PR template tiers), once, when the branch is finished. Afterwards the author
   fixes confirmed findings and answers the rest in the review file; disagreements go to Chris.
   No second Astra pass unless Chris asks for one.
+- **Hand-off to Chris closes every branch:** after fixes, write the PR description from the
+  template. Its first section is Chris's checklist: what to read (file:line), what to try
+  (exact steps and expected result), and what is not verified. Say plainly when there is
+  nothing to QA in the app.
 - Never commit secrets — `.gitignore` excludes `*secret*`, `.env`, `.snowflake/`.
 - Record meaningful architecture/code decisions in [docs/decisions.md](docs/decisions.md):
   date, origin, context, rationale, alternatives, consequences; link tasks and commits.
