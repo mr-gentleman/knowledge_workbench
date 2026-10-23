@@ -87,9 +87,9 @@ class CalcServiceTests(unittest.TestCase):
     def test_validation_counts_only_for_the_checked_revision(self):
         row = calc_row(9, "SELECT 1", revision=2)
         row.update(VALIDATION_STATUS="passed", VALIDATED_REVISION_NO=2)
-        self.assertEqual(services.validation_state(row), "✓ Validated")
+        self.assertEqual(services.validation_state(row), "✓ Runs · rev 2")
         row["REVISION_NO"] = 3
-        self.assertEqual(services.validation_state(row), "Not validated")
+        self.assertEqual(services.validation_state(row), "Not run")
 
 
 class PiPageTests(unittest.TestCase):

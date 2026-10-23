@@ -105,10 +105,13 @@ def needs_label(sibling_count: int) -> bool:
 
 
 def validation_state(calc: dict) -> str:
-    """A result counts only for the revision it checked: edited SQL is unvalidated again."""
-    if calc.get("VALIDATED_REVISION_NO") != calc.get("REVISION_NO"):
-        return "Not validated"
-    return {"passed": "✓ Validated", "failed": "✗ SQL failed"}.get(calc.get("VALIDATION_STATUS"), "Not validated")
+    """A result counts only for the revision it checked: edited SQL is "Not run" again.
+    A pass means the SQL executed, not that it is right — never say "validated" (ux-principles)."""
+    rev = calc.get("REVISION_NO")
+    if calc.get("VALIDATED_REVISION_NO") != rev:
+        return "Not run"
+    return {"passed": f"✓ Runs · rev {rev}", "failed": f"✗ SQL failed · rev {rev}"}.get(
+        calc.get("VALIDATION_STATUS"), "Not run")
 
 
 def _calc_problem(fields: dict, sibling_count: int) -> str | None:
