@@ -22,6 +22,11 @@ Streamlit UI is frozen at bug fixes and stays live until cutover. Backend work (
 services, one-call save, the SQL-run model) continues unchanged. UX items below are built once,
 in React. Sequence: FE-01 gate → FE-02 J1 in React to parity → FE-03 cutover.
 
+**Open question (#chris, 2026-10-23 — not decided):** the app edits only `AI_PLATFORM.WORKBENCH`;
+promotion to DICTIONARY becomes a separate Snowflake process (procedure or task owned by a role with
+DICTIONARY rights) that re-checks the gates, and the app's Promote becomes "Request promotion". Also on
+#chris's V1 checklist: WORKBENCH backups + retention (PLAT-06).
+
 ## Plan of record — 2026-10-23 (product focus; amends step 4 below)
 
 **#chris #claude**, from a GPT Astra product-philosophy discussion. See "Product focus" in [AGENTS.md](../AGENTS.md).
@@ -155,7 +160,7 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 
 | ID | Status | Priority / scope | Task and acceptance check | Origin / evidence |
 |---|---|---|---|---|
-| FIND-01 | TODO | P2 / V1 | Browse/search both candidates and canonical metrics. Clearly distinguish status; selecting a result opens the appropriate metric workspace. | #existing #chris — planned feature |
+| FIND-01 | TODO | P2 / V1 | Browse/search both candidates and canonical metrics. Clearly distinguish status; selecting a result opens the appropriate metric workspace. | #existing #chris — planned feature #claude 2026-10-23 — search as you type on `claude/ux-quick-fixes` (DEC-016): name, description, when-to-use, 300 ms debounce, session-cached list. Local tests; not deployed; `streamlit-keyup` install from the artifact repo unverified. |
 | FIND-02 | TODO | P2 / V1 | Search name, description, and disambiguation; add typo tolerance with ranked results. Show enough definition context to recognize an existing metric before creating another. Name-only substring search already exists. | #existing #chris — planned extension |
 | FIND-03 | TODO | P3 / Next | Add semantic search and duplicate suggestions using the same matcher. Warn without blocking; show the matching definition, not an invented duplicate probability. | #existing — planned feature |
 | FIND-04 | TODO | P3 / Next | Filter by department and lifecycle status. | #existing — planned feature |
@@ -178,8 +183,8 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | UX-03 | TODO | P2 / V1 | Tighten the identity form: clearer grouping/help text, obvious required fields, and hide free-text category until a controlled list exists. Keep name-only draft creation. | #chris #existing — planned improvement |
 | UX-04 | TODO | P2 / V1 | Add a lean separate fact-table browse/create/edit interface for name, definition, grain, key, time field, required filters, and gotchas. Seed/import active registry records before promotion testing; defer richer table workflows, joins, and dimensions. Included in the six-step sprint plan. | #existing #chris #codex — scope advanced from Next on 2026-10-21 |
 | UX-05 | TODO | P3 / Next | Add synonyms as separate records and include them in discovery. | #existing — planned feature |
-| UX-06 | TODO | P2 / V1 | Persistent save status in a sticky record header (`● Unsaved changes` / `Saving…` / `✓ Saved · rev N · time` / `Couldn't save`) plus a toast; Save disabled when unchanged; ⌘S. Today `st.success` renders at the top and can scroll away. | #chris #claude 2026-10-23 — walkthrough finding; see ux-principles.md |
-| UX-07 | TODO | P2 / V1 | Conflict message names who saved and when and which fields changed; primary action keeps my edits and shows theirs, discard is red/secondary. Today the message says "reload to compare" but the only action is "Reload latest — discard my edits". | #chris #claude 2026-10-23 — walkthrough finding; see ux-principles.md |
+| UX-06 | TODO | P2 / V1 | Persistent save status in a sticky record header (`● Unsaved changes` / `Saving…` / `✓ Saved · rev N · time` / `Couldn't save`) plus a toast; Save disabled when unchanged; ⌘S. Today `st.success` renders at the top and can scroll away. | #chris #claude 2026-10-23 — walkthrough finding; see ux-principles.md #claude 2026-10-23 — partial on `claude/ux-quick-fixes` (0169ab8): "Saving…" spinner, success toast, "✓ Saved · rev N" under the title; sticky header not done. Local tests only; not deployed. |
+| UX-07 | TODO | P2 / V1 | Conflict message names who saved and when and which fields changed; primary action keeps my edits and shows theirs, discard is red/secondary. Today the message says "reload to compare" but the only action is "Reload latest — discard my edits". | #chris #claude 2026-10-23 — walkthrough finding; see ux-principles.md #claude 2026-10-23 — built on `claude/ux-quick-fixes` (0169ab8, DEC-015): shown only on a refused save, names who/when/fields, Save disabled until Keep (per-field merge) or Discard. Local tests (35 pass); not deployed. Streamlit-only; React carries the pattern, not the code (DEC-018). |
 | UX-08 | TODO | P2 / V1 | Provenance panel on the metric page: author, created/changed, origin of the definition, history list. Define V1 contents in the J2 contract. | #claude 2026-10-23 — from product-focus plan |
 | UX-09 | TODO | P2 / V1 | Visual language: type scale, cool slate palette with one accent, status pills, spacing, component set — the "looks cool and modern" bar in ux-principles.md. Settle a reference mockup first. | #chris 2026-10-23 |
 
