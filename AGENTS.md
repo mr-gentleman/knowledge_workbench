@@ -46,8 +46,12 @@ new dependencies and abstraction layers; remove superseded code.**
   on every interaction — that's the main latency lever.
 - Deploy from the repo only: `scripts/deploy.sh` (wraps `snow streamlit deploy --replace -c workbench_deploy`)
   (Snowflake CLI >= 3.30; `snowflake.yml` lists the artifacts, including `pyproject.toml`).
-- Tests: `python -m unittest discover -s tests -v` (Python 3.11 + `streamlit>=1.50`). They use an
-  in-memory fake for `app/repositories.py`, so they cover page and rule logic, not SQL.
+- Tests: `python -m unittest discover -s tests -v` (Python 3.11 + `streamlit>=1.50`). Page tests fake
+  `app/repositories.py`; transaction tests run the real repository against a fake session that
+  records statements. Neither proves Snowflake behavior — that needs a live check.
+- **Every database call goes through `db.locked_session()`** (or `db.query`, which uses it): it holds
+  `db_lock` and refuses work on a connection that isn't proven clean (DEC-007, DEC-008). A test fails
+  if anything else calls `session()`.
 - Schema changes: add a new numbered file in `sql/`; never edit a shipped one.
 
 ## Architecture boundaries
@@ -57,7 +61,7 @@ new dependencies and abstraction layers; remove superseded code.**
 | `streamlit_app.py` (page) | Layout, widgets, per-user draft + baseline state | SQL, business rules |
 | `app/services.py` | Workflow rules: save, no-op, conflicts, readiness, promotion | SQL, Streamlit widgets |
 | `app/repositories.py` | Parameterized SQL, conditional updates, transactions, history snapshots | Business decisions |
-| `app/db.py` | Session, trusted identity | Anything else |
+| `app/db.py` | Session, the process-wide lock, connection health, query tag, trusted identity | Anything else |
 | `sql/` | Ordered migrations | Edits to shipped files |
 
 All statements in one transaction use the same session. A screen may coordinate

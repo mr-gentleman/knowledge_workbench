@@ -1,7 +1,10 @@
 """Workflows + invariants. Pages call these; these call repositories."""
+import logging
 from dataclasses import dataclass, field
 
 from app import repositories as repo
+
+log = logging.getLogger(__name__)
 
 EDITABLE = ("full_name", "description", "disambig", "department", "category")
 
@@ -26,7 +29,12 @@ def _clean(fields: dict) -> dict:
 
 
 def _collisions(name: str, exclude_candidate: int | None = None) -> list[str]:
-    hits = repo.find_by_exact_name(normalize_name(name))
+    # Advisory only: a failed lookup must never change a save's outcome (REL-11).
+    try:
+        hits = repo.find_by_exact_name(normalize_name(name))
+    except Exception:
+        log.exception("Duplicate-name check failed")
+        return ["Couldn't check for duplicate names right now."]
     return [
         f"Possible duplicate — {h['KIND']} #{h['ID']} is also named “{h['FULL_NAME']}”."
         for h in hits
@@ -34,12 +42,13 @@ def _collisions(name: str, exclude_candidate: int | None = None) -> list[str]:
     ]
 
 
-def save_new_candidate(fields: dict, actor: str) -> Outcome:
+def save_new_candidate(fields: dict, actor: str, token: str) -> Outcome:
+    """token identifies this create attempt; retries with it return the first result."""
     fields = _clean(fields)
     if not fields.get("full_name"):
         return Outcome(False, "A name is required to save.")
     warnings = _collisions(fields["full_name"])
-    cid = repo.insert_candidate(fields, actor)
+    cid = repo.insert_candidate(fields, actor, token)
     msg = "Saved." if fields.get("description") else "Saved — add a description to establish this metric."
     return Outcome(True, msg, cid, 1, warnings)
 

@@ -174,3 +174,23 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   PIs, revision-bound validation, restore drills.
 - Related: REL-08..REL-12, PLAT-04, PLAT-05, HIST-06, REL-07.
 
+## DEC-008 — Recover from an uncertain transaction by proving the connection clean, not by resetting it
+
+- Date: 2026-10-23. Origin: #claude, implementing DEC-007 (REL-08). Status: proposed.
+- Context: DEC-007 says "reset or quarantine the connection" when a transaction's outcome is
+  uncertain. A reset isn't reliably available: `st.connection(...).session()` returns the app's one
+  `get_active_session()` when running as a stored procedure (warehouse runtime), and
+  `BaseConnection.reset()` only drops the reference without closing the old connection.
+- Decision: uncertain outcomes (ROLLBACK failed, COMMIT raised, interrupted by a non-`Exception`
+  such as Streamlit's StopException) mark the process's connection **dirty**. While dirty,
+  `db.locked_session()` first runs `ROLLBACK` and `SELECT CURRENT_TRANSACTION()`; only a NULL
+  result clears it. Otherwise every operation raises `ConnectionQuarantined` ("Not saved: …"),
+  and no new transaction starts. While a failed ROLLBACK may have left a transaction open, nothing
+  else is sent — no op_log INSERT, no `ALTER SESSION` (which can implicitly commit) — and that
+  event is in the app log only.
+- Consequences: works in either runtime. Cost: two extra queries on the first operation after a
+  failure; none otherwise. A permanently stuck transaction makes the app refuse writes rather than
+  commit someone's abandoned change — the safe failure. Not verified live: CURRENT_TRANSACTION()
+  behavior inside SiS, and whether QUERY_TAG is allowed under owner's rights (tagging turns itself
+  off if not).
+- Related: REL-08, REL-09, PLAT-04; app/db.py, app/repositories.py.
