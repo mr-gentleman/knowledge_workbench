@@ -17,9 +17,9 @@ Streamlit vs React. That last column also feeds the pending SPCS/React spike dec
    understand at a glance (J1 find, J2).
 2. **Edit:** write, save, validate, inspect, *and feel like you achieved something* (J1 add, J3).
 
-None of the sites does both. Lolalytics, Letterboxd and BeerAdvocate are explore-side.
-Stripe is a read-side bridge (a definition next to its code). The edit side needs a closer
-analog: see [Gaps](#gaps--closer-analogs-still-needed).
+Lolalytics, Letterboxd and BeerAdvocate are explore-side. Stripe is a read-side bridge (a
+definition next to its code). Wikipedia, GitHub and Linear (added in a second pass) cover the
+edit side: P15–P22.
 
 ## Sites and the job each exemplifies
 
@@ -29,7 +29,15 @@ analog: see [Gaps](#gaps--closer-analogs-still-needed).
 | **BeerAdvocate** (#chris pick) | `/beer/top-rated/`, `/beer/profile/23222/78820/`, `/search/?q=stout` | Entity detail · ratings/consensus · contribution | Old-school but trustworthy: score, sample size, spread, and who said what |
 | **Letterboxd** | `/film/parasite-2019/`, `/films/popular/this/week/genre/thriller/` | Browse/filter · entity detail · look and feel | Calm slate palette, prose serif, quiet chrome; content is the page |
 | **Stripe API docs** | `/api/subscriptions/object` | Definition beside code · navigation · search palette | The definition and its code are always on screen together |
+| **Wikipedia** | `Churn_rate` with `?veaction=edit`, `?action=history`, `?diff=prev&oldid=…` | Writing/editing · history · diff | Editing looks like reading; every change has who, when, size and why |
+| **GitHub** (logged out) | `dbt-labs/jaffle-shop` `models/marts/orders.sql`, code and blame views | Code provenance · disabled-with-reason | Every line of SQL knows who changed it and why |
+| **Linear** (public docs + homepage demo) | `/docs/creating-issues`, `/docs/editor`, `linear.app` | Create and edit fast · activity feed | Keyboard-first creation; human and machine changes in one calm timeline |
 | ~~dbt docs~~ | — | Domain analog | **Not studied:** GitLab's public dbt docs now sit behind a bot check and sign-in; dbt's MRR playbook demo returns 404. |
+
+Edit-side caveat: I couldn't type in any of the editors. Wikipedia's editor opens but blocks
+this IP range from publishing. GitHub's editor and the Linear app need a sign-in. So save,
+commit and draft behavior come from what the pages show plus Linear's own docs, and I mark
+anything I didn't observe directly.
 
 ---
 
@@ -216,6 +224,121 @@ can't be done well. *Streamlit* means stock Streamlit plus light CSS; *React* me
   trust. Later: **Ask the Oracle about this metric** (cost-gated per CLAUDE.md).
 - **Cost:** Streamlit **S**. React **S**.
 
+### Edit side (second pass: Wikipedia, GitHub, Linear)
+
+#### P15 · Editing looks like reading
+- **Seen:** Wikipedia's visual editor opens *in place*. Same title, same typography, same
+  layout. A slim toolbar appears under the `Read · Edit · View history` tabs, a *Short
+  description* slot appears above the body, and **Publish changes…** sits top-right, greyed
+  out until something changes. Linear's editor turns Markdown into rich text as you type
+  (`**bold**`, `#` heading, `/` commands) with no separate preview.
+  ![Wikipedia edit in place](ux-exemplars/wikipedia-edit-in-place.jpg)
+- **Why it works:** Rule 1. You can tell you're editing (the tab, the toolbar), yet you're
+  still looking at the page as readers will see it, so there's no form-vs-page mental switch.
+  Rule 5: the one primary action is visible and disabled until it means something.
+- **Workbench:** J1/J3, and it answers **D1** (view mode + Edit). Edit mode keeps the page
+  layout and turns the fields editable in place, rather than swapping to a form. ⌘E toggles
+  it. The Save button sits in the sticky header, disabled until dirty.
+- **Cost:** Streamlit **L** (inputs look like inputs; in-place editing means a custom
+  component). React **M** (contenteditable or a Tiptap-style editor; the SQL uses Monaco or
+  CodeMirror).
+
+#### P16 · The save asks "why?" (an edit summary)
+- **Seen:** Wikipedia's button is **Publish changes…**, where the ellipsis means a dialog
+  follows (the edit summary; I couldn't open it while blocked). Every history row then carries
+  that summary: *"I realised that 'e.g.' was better / less ambiguous wording."*, or the honest
+  fallback *"No edit summary"*. GitHub shows the last commit message above every file:
+  *"Update project structure (#25)"*. (GitHub's commit dialog itself needs a sign-in; not seen.)
+- **Why it works:** Goal 3 and trust. History stops being a list of timestamps and becomes
+  a list of reasons, and the next editor learns *why* the SQL looks the way it does.
+- **Workbench:** J3, plus the history rail (HIST-01/02). Add an optional one-line "What
+  changed?" next to Save. It's required only when promoting or editing a canon metric.
+  Blank shows *"No summary"*. Keep it to one field, never a form.
+- **Cost:** Streamlit **S**. React **S**.
+
+#### P17 · History rows: who · when · size of change · why · undo
+- **Seen:** Wikipedia history: each row is *date · user · bytes after · **+31** / **−397**
+  (green/red) · summary · undo · tags* (*Visual edit*, *Mobile edit*, *Newcomer task*,
+  *Suggested: add links*). Bot edits are listed as plainly as human ones (*PrimeBOT*,
+  *CutlassBot*). **undo** "reverts this edit and opens the edit form in preview mode", so it's
+  never instant or destructive.
+- **Why it works:** Rule 4 (recovery is one click, and it goes through a preview rather than
+  a silent revert). The size delta tells you at a glance which edits matter.
+- **Workbench:** J2 history rail. `rev 4 · Gabe · 2 days ago · SQL +3 lines · "exclude test
+  accounts" · Restore…`. **Restore** opens the editor prefilled with the old revision; the user
+  then saves it as a new revision. Tags show the source: `human`, `import`, and in V2
+  `machine`.
+- **Cost:** Streamlit **S–M**. React **S**.
+
+#### P18 · Side-by-side diff with who/when/why headers
+- **Seen:** Wikipedia diff. Two columns, each headed *"Revision as of 10:17, 19 May 2026
+  (edit) (undo)"* · author · summary · tags, with **← Previous edit / Next edit →**. Changed
+  words are highlighted inside the line. A **Visual / Wikitext** toggle and an **Inline**
+  switch change the view.
+  ![Wikipedia diff](ux-exemplars/wikipedia-diff.jpg)
+- **Why it works:** Goal 3. Prev/next lets you walk the history one change at a time.
+- **Workbench:** J3, plus the conflict pattern (*"Gabe saved a newer version… Changed: SQL,
+  description"* → **View theirs** opens this diff). Diff the SQL and the description separately;
+  where both revisions were validated, a *result* diff (row-count or value change) is the
+  BI-specific bonus.
+- **Cost:** Streamlit **M** (difflib to HTML works; word-level highlighting and the toggles
+  take effort). React **S–M** (Monaco diff editor).
+
+#### P19 · Line-level provenance (blame) with an age heat strip
+- **Seen:** GitHub's code view has a byline above the file (*avatar · gwenwindflower · Update
+  project structure (#25) · b232e30 · 2 years ago · History*) and *"77 lines (53 loc) · 1.42
+  KB"*. The **Blame** toggle annotates each block with age, author and commit message
+  (*"Fix fanout in customers model…"*), plus an **Older ▮▮▮▮ Newer** heat legend and a
+  contributor count.
+  ![GitHub blame](ux-exemplars/github-blame.jpg)
+- **Why it works:** Goal 3 and trust. "Why is this `WHERE` clause here?" gets answered in
+  place, which is exactly the forensic question BI asks about inherited SQL.
+- **Workbench:** J2. A byline above the SQL card (*"Last changed by Gabe · 'exclude test
+  accounts' · 2 days ago · History"*) adopts now. A blame toggle on the SQL comes later (it
+  needs line-level revision mapping).
+- **Cost:** byline: Streamlit **S**, React **S**. Blame: Streamlit **L**, React **M**.
+
+#### P20 · Disabled action with the reason in a tooltip
+- **Seen:** GitHub logged out: the pencil is visible but greyed, and hovering says *"You must
+  be signed in to make or propose changes"*. Note the wording: **propose** changes is the
+  path for people without write access (a fork and pull request).
+- **Why it works:** exactly the existing "Disabled actions" rule. It also shows a two-tier
+  model: some people *make* changes and others *propose* them.
+- **Workbench:** J3. **Promote** is disabled with *"Needs: When to use · ✓ validated SQL"*.
+  For V2, "propose" maps to editing a canon metric as a suggestion (a candidate revision) that
+  an owner accepts, so canon is never casually overwritten.
+- **Cost:** Streamlit **S** (the `help=` tooltip on buttons). React **S**.
+
+#### P21 · Create from anywhere: shortcut, prefilled URL, and a quiet grace window
+- **Seen (Linear docs):** **C** opens the create modal from anywhere. **Create issue from
+  selection** turns highlighted text into an issue. `linear.new?title=…&status=…&assignee=me`
+  pre-fills a new issue from a URL, so other tools can link straight into creation. And:
+  *"Changes made to an issue's properties in the first 3 minutes are considered part of the
+  issue creation process, and won't be added to the activity log."*
+- **Why it works:** Goal 2. The grace window keeps history meaningful, because fixing a typo
+  right after creating doesn't spawn rev 2, rev 3 and rev 4.
+- **Workbench:** J1. `/new?name=Net+New+ARR&dept=finance` lets **the Oracle** link a
+  prefilled *"Create this metric"* whenever it can't find one (a coverage loop), and the
+  same link works from Slack. **C** or **N** on the list opens a new metric. Successive saves
+  by the creator within a few minutes fold into one revision.
+- **Cost:** Streamlit **S** for the URL prefill (`st.query_params`), **M** for keyboard
+  shortcuts. The grace window is backend logic, and the same cost in either. React **S**.
+
+#### P22 · One timeline for human and machine changes
+- **Seen:** Linear homepage demo issue. The Activity feed mixes quiet one-liners (*"Linear
+  created the issue via Slack on behalf of Karri · 2min ago"*, *"Triage Intelligence added the
+  labels Performance and iOS"*, *"Linear moved from Todo to In Progress · just now"*) with
+  comment cards from people. Machine actors are named and attributed like people, in muted
+  text. The editor docs add: *"Referenced issues are added as related issues automatically"*
+  via `@ENG-123`.
+  ![Linear activity](ux-exemplars/linear-activity.jpg)
+- **Why it works:** Rule 1 and trust. You can always tell what a person did from what a
+  machine did, without a separate log. Events are quiet; comments get a card.
+- **Workbench:** J2 history, and the V2 bridge. *"Forensics proposed this SQL from 3 Looker
+  explores · 5 days ago"*, *"Validation passed on rev 4"*, *"Chris promoted to Canon"* in one
+  feed. `@metric` mentions in a description auto-link related metrics (a cheap start on "related").
+- **Cost:** Streamlit **S–M**. React **S**.
+
 ### Anti-patterns observed
 
 - **Full-page search with a 10-result cap** (BeerAdvocate `/search`: ~675 ms to first byte,
@@ -239,12 +362,16 @@ can't be done well. *Streamlit* means stock Streamlit plus light CSS; *React* me
 | P13 Progress strip | **Adopt now (static)** | Numbers now; animated tick with React |
 | P1 Suggest-as-you-type with row actions + ⌘K | **Adopt with React** | Strongest single "feels modern" moment; Streamlit can't do it well |
 | P6 Skeletons · P7 Quiet inline filters · P8 Sticky SQL pane · P12 Type pairing | **Adopt with React** | Doable in Streamlit only with fragile CSS |
+| P16 Edit summary · P17 History rows + Restore… · P19 SQL byline · P20 Disabled-with-reason · P21 Prefill URL | **Adopt now** | All S in Streamlit; P21 gives the Oracle a "create this metric" link |
+| P15 Edit-in-place · P18 Word-level diff · P19 Blame · P21 Keyboard create | **Adopt with React** | P15 is the biggest edit-side "feels modern" item, and L in Streamlit |
+| P22 Unified human + machine timeline | **Adopt now (simple), grow in V2** | Plain list now; machine events arrive with V2 |
 | P10 Deviation vs consensus | **Defer to V2** | Belongs to adjudication |
 | Lolalytics density, BeerAdvocate full-page search | **Skip** | See anti-patterns |
 
 **For the React decision:** P1, P6, P7, P8 and the animated part of P13 are the patterns that
-carry "fun, cool, modern" (Goal 4), and all of them are M–L in Streamlit and S in React. That's
-the concrete evidence the spike asked for.
+carry "fun, cool, modern" (Goal 4), and all of them are M–L in Streamlit and S in React. On the
+edit side, P15 (edit in place) is L in Streamlit and M in React. That's the concrete evidence
+the spike asked for.
 
 ## Proposed additions to ux-principles.md
 
@@ -261,6 +388,14 @@ the concrete evidence the spike asked for.
    From P6.
 7. **Reference look:** add **Letterboxd** (dark slate, prose serif) and **Stripe API docs**
    (definition beside code) to the "looks cool" reference list.
+8. **Editing looks like reading.** Edit mode keeps the page layout; fields become editable in
+   place. From P15. (Resolves J1 D1 toward "view mode + Edit".)
+9. **Every revision says who, when, how much and why.** An optional one-line summary on save,
+   required for canon. From P16–P17.
+10. **Undo is a preview, not a silent revert.** Restore opens the editor with the old content;
+    saving it creates a new revision. From P17.
+11. **Machines are named actors.** Imports, forensics and validation appear in the same
+    history as people, attributed and visually quieter. From P22.
 
 ## Making it scoreable (#chris: "scoreable and highly iterable, not vibes")
 
@@ -275,18 +410,19 @@ screenshots, so #chris + AI can iterate without manual clicking.
 | Primary buttons per state | exactly 1 | DOM count of `.primary` per state |
 | Status visible without scrolling after Save | yes | Screenshot + DOM `getBoundingClientRect` |
 | Each of the five states (success/empty/waiting/failure/interrupted) designed | 5 / 5 | Script forces each; screenshot reviewed against P-patterns |
-| Pattern adoption | count of P1–P14 present | Rubric per screen, 0/1/2 each, graded from screenshots |
+| Pattern adoption | count of P1–P22 present | Rubric per screen, 0/1/2 each, graded from screenshots |
 | Acceptance checks (v1-journeys) | all pass | Existing walkthrough list, automated where possible |
 
-The rubric gives a number per build (e.g. *"list screen 19/28"*) to compare across the
+The rubric gives a number per build (e.g. *"list screen 19/44"*) to compare across the
 Streamlit and React spikes, and across iterations.
 
 ## Gaps — closer analogs still needed
 
-- **Edit side.** None of the five shows writing, saving, validating and the satisfaction of
-  done. Candidates: **Linear** (issue editing, ⌘K, optimistic save; public docs and changelog
-  only), **Notion** public templates, **Wikipedia** edit flow (diff, "publish changes"),
-  **GitHub** file editor (a commit as a save with a message).
+- **Edit side: the moment of saving.** P15–P22 cover the structure of editing (in place,
+  summaries, history, diff, provenance). Still unobserved: the save moment itself (optimistic
+  UI, toast, the "done" feeling), because every editor needed a sign-in or blocked publishing.
+  To close it: a signed-in Linear or Notion session by #chris, or a Wikipedia edit from an
+  unblocked network (preview only, no publish).
 - **Domain analog.** dbt docs demos are offline. Candidates: **DataHub** public demo, **Atlan**
   or **Select Star** product tours, **Metabase** docs screenshots of the Data Reference.
 - **Dashboard-ish metric metadata** (questions answered, feedback average, Looker links).
@@ -303,6 +439,9 @@ Streamlit and React spikes, and across iterations.
 - **BeerAdvocate:**
 - **Letterboxd:**
 - **Stripe API docs:**
+- **Wikipedia:**
+- **GitHub:**
+- **Linear:**
 
 ## Astra read (optional) — side by side
 
