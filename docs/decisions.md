@@ -196,24 +196,30 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   off if not).
 - Related: REL-08, REL-09, PLAT-04; app/db.py, app/repositories.py.
 
-## DEC-019 — A reserved calc_id is a PI create's retry key; PIs save independently
+## DEC-019 — A reserved calc_id is a PI create's retry key; PI label, default and run-status rules
 
-- Date: 2026-10-23. Origin: #claude (UX-01/UX-02 backend, branch claude/sql-on-page). Status: proposed.
+- Date: 2026-10-23. Origin: #claude (UX-02 backend, branch claude/sql-on-page). Status: proposed.
   Numbered after DEC-018 on claude/product-focus; renumber on merge if taken.
+- Scope: how a PI is created safely and which per-PI rules hold. **How PIs are saved is DEC-020**
+  (one Save, all-or-nothing across the candidate and its PIs); this entry no longer says PIs save
+  independently.
 - Context: `metric_calc` has no `create_token` column, yet a PI create retried after a lost
-  acknowledgement must not insert twice (same risk as REL-10). Per DEC-018 the PI UI is built in
-  React (FE-02); this is the backend it calls.
-- Decision: each PI saves on its own (own revision, conditional UPDATE, conflict = latest row +
-  what changed), like the identity form. Before a new PI's first save the caller reserves an id
-  from `seq_calc_id` (`repo.reserve_calc_id`); the INSERT is skipped when that id already exists,
-  and a replay whose content differs returns a warning so the caller keeps the newer edits as
-  unsaved. No migration. The first PI of a candidate is `is_default`; with two or more, each needs
-  a "how it differs" label (`disambig`). Run status is bound to the revision it checked
-  (`services.validation_state`: Not run / ✓ Runs · rev N / ✗ SQL failed · rev N).
-- Alternatives: a `create_token` column (needs a migration before deploy); one Save for identity +
-  SQL (couples two records' conflicts).
-- Consequences: abandoned creates leave sequence gaps (fine). Two people adding the first PI to the
-  same candidate at once can both get `is_default`; acceptable until promotion, which must choose
-  one anyway. The parked Streamlit card UI (branch claude/sql-on-page-streamlit-ui) shows one way
-  to drive this API, including keeping drafts across card switches.
-- Related: UX-01, UX-02, REL-10, DEC-018, FE-02; app/services.py, app/repositories.py, tests/test_pi.py.
+  acknowledgement must not insert twice (same risk as REL-10).
+- Decision:
+  - Retry key: before a new PI's first save the caller reserves an id from `seq_calc_id`
+    (`repo.reserve_calc_id`) and keeps it with the draft. `repo.insert_calc` skips the INSERT when
+    that id already exists; a replay whose content differs is reported so the caller keeps the
+    newer edits as unsaved. No migration.
+  - Default: the first active PI of a candidate is `is_default`.
+  - Label: with two or more active PIs, each needs a "how it differs" label (`disambig`).
+  - Run status is bound to the revision it checked (`services.validation_state`):
+    `Not run` / `✓ Runs · rev N` / `✗ SQL failed · rev N`; never "validated".
+  - Removing a PI retires it (`repo.retire_calc`: status 'retired', revision + 1, snapshot); no
+    migration.
+- Alternatives: a `create_token` column (needs a migration before deploy).
+- Consequences: abandoned creates leave sequence gaps (fine). The per-record repository functions
+  (`insert_calc`, `update_calc`, `retire_calc`) and the per-PI rules in `app/services.py` are
+  building blocks for DEC-020's single save (PLAT-09, branch claude/save-proc); the per-PI
+  `save_new_calc` / `save_calc_edit` services predate DEC-020 and should be folded into or replaced
+  by `save_metric` there.
+- Related: UX-02, REL-10, DEC-018, DEC-020, FE-02; app/services.py, app/repositories.py, tests/test_pi.py.

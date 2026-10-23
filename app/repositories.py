@@ -259,6 +259,24 @@ def update_calc(calc_id: int, expected_revision: int, fields: dict, actor: str) 
     return _in_txn(run, "calc.edit", actor, calc_id)
 
 
+def retire_calc(calc_id: int, expected_revision: int, actor: str) -> int:
+    """Removing a PI retires it: the row and its history stay, reads of active PIs drop it."""
+    def run(execute, meta):
+        res = execute(
+            f"""UPDATE {SCHEMA}.metric_calc
+                SET status = 'retired', revision_no = revision_no + 1,
+                    updated_by = ?, updated_at = CURRENT_TIMESTAMP()
+                WHERE calc_id = ? AND revision_no = ? AND status = 'active'""",
+            [actor, calc_id, expected_revision],
+        )
+        if res[0][0] == 0:
+            raise StaleEdit(calc_id)
+        _snapshot("metric_calc", "metric_calc", "calc_id", calc_id, "retire", actor, None, execute)
+        return expected_revision + 1
+
+    return _in_txn(run, "calc.retire", actor, calc_id)
+
+
 def history(record_type: str, record_id: int):
     return query(
         f"""SELECT revision_no, action, actor, acted_at, change_note, snapshot, schema_version

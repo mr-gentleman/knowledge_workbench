@@ -49,6 +49,22 @@ class CalcRepositoryTests(unittest.TestCase):
         self.assertEqual(s.op_log()[0][4], "conflict")
 
 
+    def test_retire_is_versioned_and_snapshotted(self):
+        s = FakeSession()
+        with patch.object(db, "session", return_value=s):
+            self.assertEqual(repo.retire_calc(9, 1, "tester"), 2)
+        text, params = next(c for c in s.calls if c[0].lstrip().startswith("UPDATE"))
+        self.assertIn("status = 'retired'", text)
+        self.assertEqual(params[1:], [9, 1])
+        snap = next(p for t, p in s.calls if "INTO AI_PLATFORM.WORKBENCH.revision" in t)
+        self.assertEqual(snap[:2], ["metric_calc", "retire"])
+
+    def test_retire_of_a_changed_pi_is_a_conflict(self):
+        s = FakeSession(rows={"UPDATE": [[0]]})
+        with patch.object(db, "session", return_value=s), self.assertRaises(repo.StaleEdit):
+            repo.retire_calc(9, 1, "tester")
+        self.assertFalse(any("INTO AI_PLATFORM.WORKBENCH.revision" in q for q in s.statements))
+
 class CalcServiceTests(unittest.TestCase):
     def test_first_pi_is_default_and_needs_no_label(self):
         with patch.object(repo, "insert_calc", return_value=True) as insert:
