@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-screen health readout: size, complexity, lint, tests, docs ratio, feature
 # maturity, and the change since the last run. Read-only except output/health-last.txt.
-# Setup once: uv pip install --python .venv -r pyproject.toml --extra dev
+# Needs .venv (for the tests) and uv; ruff/radon run via uvx at pinned versions, so
+# nothing is added to pyproject.toml, which ships with the app.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -11,6 +12,8 @@ MAX_FILE=300   # lines per file
 MAX_FUNC=50    # lines per function
 MAX_CC=10      # cyclomatic complexity per function
 LAST=output/health-last.txt
+RUFF="uvx -q ruff@0.17.0"
+RADON="uvx -q radon@6.0.1"
 NOW=$(mktemp)
 metric() { echo "$1 $2" >> "$NOW"; printf '  %-22s %s\n' "$1" "$2"; }
 lines() { [ $# -gt 0 ] && cat "$@" | wc -l | tr -d ' ' || echo 0; }
@@ -29,8 +32,8 @@ for f in $CODE; do
 done
 
 echo "== Functions (radon)"
-if [ -x .venv/bin/radon ]; then
-  .venv/bin/radon cc -j $(echo "$CODE" | grep '\.py$') | $PY -c "
+if command -v uvx >/dev/null; then
+  $RADON cc -j $(echo "$CODE" | grep '\.py$') | $PY -c "
 import json, sys
 fns = [b for blocks in json.load(sys.stdin).values() if isinstance(blocks, list)
        for b in blocks if b['type'] in ('function', 'method')]
@@ -42,12 +45,12 @@ cc = sorted(b['complexity'] for b in fns) or [0]
 print(f'functions {len(fns)}'); print(f'max_complexity {cc[-1]}')
 print(f\"over_limits {sum(b['complexity'] > $MAX_CC or b['endline'] - b['lineno'] >= $MAX_FUNC for b in fns)}\")
 " | while read -r k v; do [ "$k" = "!" ] && echo "  ! $v" || metric "$k" "$v"; done
-else echo "  (skipped: radon not installed — see setup line at top)"; fi
+else echo "  (skipped: uv not installed)"; fi
 
 echo "== Lint (ruff)"
-if [ -x .venv/bin/ruff ]; then
-  metric lint_findings "$(.venv/bin/ruff check --quiet --output-format concise $(git ls-files '*.py') | grep -c ':')"
-else echo "  (skipped: ruff not installed — see setup line at top)"; fi
+if command -v uvx >/dev/null; then
+  metric lint_findings "$($RUFF check --quiet --output-format concise $(git ls-files '*.py') | grep -c ':')"
+else echo "  (skipped: uv not installed)"; fi
 
 echo "== Tests"
 out=$($PY -m unittest discover -s tests 2>&1 | tail -3)
