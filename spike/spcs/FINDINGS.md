@@ -14,6 +14,8 @@
 | Idle cost acceptable | **~80 cr/mo, always on.** The shared pool refuses this service type, and auto-suspend is refused for services with public endpoints (see Deploy log). So the dedicated XS pool never idles down | live deploy |
 | Feels fast | **Pass locally** (API round trip 8–53 ms against a fake repo). Real latency = Snowflake query time, same as SiS minus Streamlit reruns | local preview |
 
+**Hybrid-table benchmark (2026-10-23, [HYBRID_BENCH.md](HYBRID_BENCH.md)):** the same save transaction (UPDATE + revision INSERT + op_log INSERT + COMMIT) from a laptop took p50 **2659 ms on standard tables vs 1005 ms on hybrid tables** (900 ms with one `INSERT ALL`). Server time fell from 1930 to 515 ms, so a save from SPCS should be < 1 s (estimate). Catch: hybrid tables have no Fail-safe, no UNDROP, no schema-level clone and no replication, and Time Travel is `AT TIMESTAMP` only. Migrating needs a backup copy to standard tables, and op_log needs a non-`op_id` key (replays reuse op_id). Chris decides.
+
 ## Deploy log (2026-10-23, driven by Claude at Chris's request)
 
 - Step 1 (grants, `KW_IMAGES` repo, `KW_SPIKE_POOL`) done by Chris/CoCo. Verified with `SHOW GRANTS TO ROLE WORKBENCH_APP`.
