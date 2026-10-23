@@ -174,3 +174,71 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   PIs, revision-bound validation, restore drills.
 - Related: REL-08..REL-12, PLAT-04, PLAT-05, HIST-06, REL-07.
 
+
+> Numbering note (2026-10-23, #claude): DEC-008 is used twice on unmerged branches —
+> `claude/REL-08-m1-hardening` (connection recovery) and `codex/frontend-independent-plan`
+> (Streamlit MVP). Renumber one at merge. Entries below start at DEC-012 to stay clear.
+
+## DEC-012 — V1 is one workflow; features must earn their way in
+
+- Date: 2026-10-23. Origin: #chris, from a GPT Astra product-philosophy discussion; recorded by #claude.
+- Status: adopted (AGENTS.md "Product focus", features.md plan of record 2026-10-23).
+- Context: the V1 backlog had grown to ~43 items scoped as "retire Sheets" — the whole lifecycle.
+- Decision: V1 = human-entered metrics, one at a time: find → understand → correct → candidate/canon
+  state, built to a polished bar. Extras are proposed separately with who needs it, what task gets
+  harder without it, and the simplest alternative. Machine-content review, adjudication and blessing
+  are V2; fact-table UI (UX-04), relationships, usage ranking later.
+- Alternatives: keep the six-step lifecycle plan (broad, slow to feel finished).
+- Consequences: two screens (list, metric page) carry V1. SME sessions start once V1 looks finished,
+  not before (#chris: first impressions matter).
+
+## DEC-013 — UX is a goal: principles, contracts, walkthroughs
+
+- Date: 2026-10-23. Origin: #chris #claude, with GPT Astra's journey/contract framework.
+- Status: adopted (docs/ux-principles.md, docs/plans/v1-journeys.md, docs/walkthroughs/).
+- Decision: explicit goals — easy, fast, understandable, fun/cool/modern. Six app-wide rules
+  (orientation, persistence, saved ≠ validated ≠ canon, recovery, one next step, plain errors).
+  Each journey gets a UX contract before code and a #chris walkthrough after; raw impressions go
+  to docs/walkthroughs/notes.md and are triaged into backlog items.
+- Alternatives: a full design system up front (too early); ad hoc per screen (inconsistent).
+
+## DEC-014 — Review state = candidate vs canon; validation sticks to the SQL revision
+
+- Date: 2026-10-23. Origin: #chris.
+- Status: decided; implementation is CHECK/LIFE work.
+- Decision: promotion stays in V1 with a light gate for human-entered metrics (default: SQL
+  validated, description, when-to-use; any author may promote). Validation runs only when the SQL
+  changes, shows a results preview, and a pass holds for that revision — no periodic re-check in V1.
+- Open: whether validation runs automatically on save (J1 D2; would supersede CHECK-01's "saving SQL
+  does not execute it"); one Save per page vs per section once PIs join the page.
+
+## DEC-015 — Conflicts surface only on a refused save, next to Save
+
+- Date: 2026-10-23. Origin: #chris walkthrough; implemented by #claude on `claude/ux-quick-fixes`.
+- Status: implemented locally (tests pass); not deployed. Refines DEC-001's always-visible reload.
+- Decision: no standing "Reload latest — discard my edits". A refused save names who saved, when,
+  and which fields changed, shows their values, and disables Save until a choice: Keep my edits on
+  the latest version (primary; per-field merge — fields I didn't change take theirs) or Discard
+  mine. The save path drops its pre-read; the conditional UPDATE is the only guard, so every
+  conflict is logged in op_log.
+- Alternatives: background polling for newer versions (a query per open window; deferred).
+
+## DEC-016 — Search as you type over a session-cached list
+
+- Date: 2026-10-23. Origin: #chris walkthrough; #claude.
+- Status: implemented locally; not deployed.
+- Decision: `streamlit-keyup` (300 ms debounce) replaces the Enter-to-search box. The sidebar list
+  is cached per browser session for 30 s and cleared on save, so typing and switching records cost
+  no query; search covers name, description and when-to-use, falling back to SQL past the 200-row cap.
+- Alternatives: native selectbox type-to-filter (names only, loses the list); React (pending spike).
+- Consequences: a new dependency installed from the artifact repository; other viewers' saves can
+  take up to 30 s to appear in the list.
+
+## DEC-017 — Department names
+
+- Date: 2026-10-23. Origin: #chris.
+- Status: implemented locally on `claude/ux-quick-fixes`.
+- Decision: Finance, Marketing, Sales, Customer, Product, Analytics, Other (proper case; bi_meta →
+  Analytics after the team rename; misc → Other). Old lowercase values map on read; no migration.
+- Consequences: the Oracle categorizer enum (finance/…/bi_meta/misc) differs — map at serving time
+  or rename there too (cross-tool TODO).

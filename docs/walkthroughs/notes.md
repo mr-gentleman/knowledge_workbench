@@ -3,7 +3,7 @@
 Raw first impressions from #chris (dictated is fine), newest on top. The agent triages
 each batch into backlog items or contract changes and marks it `→ triaged`.
 
-## 2026-10-23 — published app (d1b6783)
+## 2026-10-23 — published app (d1b6783) → triaged
 
 - Save takes a noticeable moment; should feel lightweight. → measured: 1.7–2.2 s per save,
   lock wait 1 ms; ~11 Snowflake round trips per save. Trim trips + "Saving…" now; one-call
@@ -17,3 +17,6 @@ each batch into backlog items or contract changes and marks it `→ triaged`.
 - Description and When to use as large multi-line fields: good.
 - Start physical implementations (SQL) on the same edit screen: separate table, linked to the
   metric, rich SQL editor, collapsible for long SQL. → UX-01/02.
+- Departments in proper case; bi_meta → Analytics, misc → Other. → DEC-017 (built, unmerged).
+- Wants a visual plan, big picture → zoom. → docs/plan-map.md.
+- Wants parallel sessions so less waiting. → plan-map.md "Parallel lanes".
