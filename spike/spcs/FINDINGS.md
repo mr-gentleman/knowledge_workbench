@@ -1,17 +1,17 @@
 # SPCS spike — can the Knowledge Workbench be React on Snowpark Container Services?
 
-#claude 2026-10-23 · branch `claude/spcs-spike` (from `claude/REL-08-m1-hardening`) · status: **built and checked locally; not deployed** (needs Chris's OK + the grants in [handoff.sql](handoff.sql)).
+#claude 2026-10-23 · branch `claude/spcs-spike` (from `claude/REL-08-m1-hardening`) · status: **deployed and live-checked 2026-10-23** (FE-01 verdict below).
 
 ## Verdict so far
 
-**Provisionally passes on everything that can be checked from here. The two criteria that decide it (login, then the identity header and caller's rights) can only be proven with a live deploy.** Nothing found so far argues against React-first. The biggest risk turned out smaller than expected: **today's Streamlit app is already an SPCS service.** `KNOWLEDGE_WORKBENCH` runs as service `AI_PLATFORM.WORKBENCH.STPLATSTREAMLIT315687177` on `SYSTEM_COMPUTE_POOL_CPU`, from a Snowflake-managed image. React on SPCS is the same substrate with our own image, not a new platform.
+**Live (2026-10-23): login and attribution pass. Search is fast. Save misses the proposed 1.5 s bar, at 2.8 s. That cost is the save transaction itself (SiS saves log 1.7–2.2 s), not the front end. See the FE-01 gate.** The earlier pre-deploy notes follow. The biggest risk turned out smaller than expected: **today's Streamlit app is already an SPCS service.** `KNOWLEDGE_WORKBENCH` runs as service `AI_PLATFORM.WORKBENCH.STPLATSTREAMLIT315687177` on `SYSTEM_COMPUTE_POOL_CPU`, from a Snowflake-managed image. React on SPCS is the same substrate with our own image, not a new platform.
 
 | Criterion | Status | Evidence kind |
 |---|---|---|
 | Tolerable deploy loop | **Likely pass.** Local UI loop is instant; image build 1m19s cold / ~10s warm; push and rollout not yet measured | local run, local podman build + boot |
-| Snowflake login works | **Unverified.** Public endpoint = Snowflake login by design | docs + spec only |
-| Viewer identity available (caller's rights) | **Wired, unverified live.** Header identity + caller's-rights probe built and unit-tested | unit tests (fake repo) |
-| Idle cost acceptable | **Pass on the shared pool (≈ today's cost); ~80 cr/mo worst case on a dedicated XS pool** | measured account metering |
+| Snowflake login works | **Pass** (see FE-01 gate 1) | published app |
+| Viewer identity available (caller's rights) | **Pass.** Header identity = CLENZINI and can't be forged; the caller's-rights probe works but runs as the user's *default* role (`GLEAN_QUERY_SNOWFLAKE_ROLE`), not `WORKBENCH_USER` | published app |
+| Idle cost acceptable | **~80 cr/mo, always on.** The shared pool refuses this service type, and auto-suspend is refused for services with public endpoints (see Deploy log). So the dedicated XS pool never idles down | live deploy |
 | Feels fast | **Pass locally** (API round trip 8–53 ms against a fake repo). Real latency = Snowflake query time, same as SiS minus Streamlit reruns | local preview |
 
 ## Deploy log (2026-10-23, driven by Claude at Chris's request)
@@ -22,7 +22,9 @@
 - Service `AI_PLATFORM.WORKBENCH.KW_SPIKE` on `KW_SPIKE_POOL`, image `kw-spike:e61742c`: **build+push 22 s (warm), rollout 48 s to READY, including the pool resume.**
 - Access: `WORKBENCH_USER` was created by SECURITYADMIN, granted to `CLENZINI` and to `SYSADMIN`, and holds `KW_SPIKE!KW_USER` (granted by WORKBENCH_APP).
 - Endpoint: **https://fmje2s-activecampaign-fm00411.snowflakecomputing.app** (provisioning took a few minutes after READY).
-- **Next (fresh session):** live checks 1–5 in COCO_HANDOFF.md, then fill in the FE-01 table below. Also run `ALTER SERVICE AI_PLATFORM.WORKBENCH.KW_SPIKE SET AUTO_SUSPEND_SECS = 1800` (handoff.sql §6).
+- **First live read failed on paramstyle:** `/api/candidates` returned 500 because our own `snowflake.connector.connect()` defaulted to `pyformat` while the repository SQL uses `?` (the `'%' || ? || '%'` in `list_candidates` raised "unsupported format character"). Fixed by binding `qmark` (a01d545) in one redeploy: 29 s build+push, 64 s rollout.
+- **Auto-suspend refused:** `ALTER SERVICE AI_PLATFORM.WORKBENCH.KW_SPIKE SET AUTO_SUSPEND_SECS = 1800` → `395101: Auto suspend is not supported for services with public endpoints`. `auto_suspend_secs` stays 0. Cost control = `ALTER SERVICE … SUSPEND` by hand, or a scheduled suspend/resume, or teardown.
+- Live checks 1–5 run 2026-10-23; results in the FE-01 table.
 
 ## FE-01 gate (DEC-018): all three must pass
 
@@ -30,9 +32,9 @@ DEC-018 (2026-10-23, on `claude/product-focus`) makes React on SPCS the V1 front
 
 | Gate | Status | Measurement to record (live) |
 |---|---|---|
-| 1. Snowflake login works in the container | Not yet run | Page loads after SSO for a user with `KW_USER`; refused without it |
-| 2. Write attributed to the signed-in user, not a service account | Built; unit-tested against fakes only | `revision.actor`, `metric_candidate.updated_by` and `op_log.actor` = your user after a Save. **And** the forged-header test returns you, not `NOT_ME`. Either failing = gate fails |
-| 3. One read + one write fast enough for search-as-you-type and save | Local only: 8–53 ms against a fake repository, which proves nothing about Snowflake | Search: p50/max of the console timing below. Save: the ms in the Save toast. Proposed bar: search p50 ≲ 300 ms, save ≲ 1.5 s (Chris to confirm) |
+| 1. Snowflake login works in the container | **Pass** (positive path) | Chris (CLENZINI, via `WORKBENCH_USER`) loaded the app after Okta SSO in his own browser. Okta fails inside the Claude Code browser pane (FastPass/VPN), so use a normal browser. Not tested: refusal for a user without `KW_USER` |
+| 2. Write attributed to the signed-in user, not a service account | **Pass** | Save on `ZZ_M1_TEST` (candidate 4 → rev 3, 17:31 CDT): `metric_candidate.updated_by`, `revision.actor` and `op_log.actor` (`candidate.edit`, committed) are all `CLENZINI` (read-only SQL). `/api/me` → `user: CLENZINI`, `caller: CLENZINI / GLEAN_QUERY_SNOWFLAKE_ROLE`. Forged `Sf-Context-Current-User: NOT_ME` → `user` still `CLENZINI` |
+| 3. One read + one write fast enough for search-as-you-type and save | **Search pass; save misses the proposed bar** | Search, 7 keystrokes from the browser: 184, 185, 219, **222 (p50)**, 262, 276, **531 (max)** ms, against a bar of ≲ 300. Save: the server-side transaction (`op_log.duration_ms`) took **2814 ms**, against a bar of ≲ 1.5 s, and the toast is ≥ that. The same transaction from SiS logged 1694–2227 ms today, so the cost is the multi-statement save, not SPCS or React. Chris decides whether that bar holds or the save gets cheaper first (FE-02 / one-call save) |
 
 Search timing, run in the browser console on the deployed app. It calls the real server-side search (`repositories.list_candidates`, ILIKE, LIMIT 200) once per keystroke:
 ```js
