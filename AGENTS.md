@@ -45,6 +45,9 @@ before widening.
 - "Cheap to build" is not a justification; a feature must earn its ongoing place.
 - Spend depth where human judgment happens: readable definitions and SQL,
   provenance, proposed vs accepted, corrections that never lose work.
+- UX is a goal, not polish: easy, fast, understandable, and cool/modern. Follow
+  [docs/ux-principles.md](docs/ux-principles.md); each journey gets a UX contract in
+  [docs/plans/v1-journeys.md](docs/plans/v1-journeys.md) before code and a walkthrough after.
 
 ## Project facts
 

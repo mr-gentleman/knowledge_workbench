@@ -24,8 +24,8 @@ to a polished bar. Lifecycle, import and serving follow V1; they are not removed
 1. **Close VERIFY debt first.** Deploy the hardening branch and run its live checks before new feature work.
 2. **One-page workflow spec**, front-end-independent: screens (find list → record workspace), record states, and
    what "saved" looks like. Doubles as the SPCS spike's test screen.
-3. **Build only that workflow:** FIND-01/02, UX-01/02/03, REL-04. Provenance/evidence on the workspace is in
-   scope (no ID yet — file one with the spec).
+3. **Build only that workflow:** FIND-01/02, UX-01/02/03, UX-06–09, REL-04. Provenance/evidence on the workspace is in
+   scope (UX-08).
 4. **V1 must look good**, not just work — it is the first impression for SMEs. SME sessions (e.g. five real
    metrics with an SME, alongside the SERVE-02 trial) start once V1 meets that bar; their findings set the
    next priorities.
@@ -34,8 +34,11 @@ to a polished bar. Lifecycle, import and serving follow V1; they are not removed
 **Moved out of V1 core:** UX-04 fact-table interface → after V1; seed the registry instead (already sufficient
 for promotion testing). HIST-01/02 diffs only if the workflow needs them.
 
-**Open decision (#chris):** what "clear review state" means in V1 — candidate vs canon (pulls CHECK/LIFE into V1)
-or a lighter "reviewed by X on date" marker (keeps V1 to find + edit). #claude leans lighter.
+**Decided (#chris, 2026-10-23):** "clear review state" = candidate vs canon with a light gate for human-entered
+metrics (promotion stays in V1; machine-content review/adjudication/blessing is V2). Validation runs only when SQL
+changes; a pass sticks to that revision; results preview shown. Journeys, defaults and open decisions (D1–D4):
+[plans/v1-journeys.md](plans/v1-journeys.md). UX rules: [ux-principles.md](ux-principles.md) — UX contract before
+each journey is coded, #chris walkthrough after.
 
 ## Plan of record — 2026-10-22 (pre-SME hardening, then V1)
 
@@ -160,6 +163,10 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | UX-03 | TODO | P2 / V1 | Tighten the identity form: clearer grouping/help text, obvious required fields, and hide free-text category until a controlled list exists. Keep name-only draft creation. | #chris #existing — planned improvement |
 | UX-04 | TODO | P2 / V1 | Add a lean separate fact-table browse/create/edit interface for name, definition, grain, key, time field, required filters, and gotchas. Seed/import active registry records before promotion testing; defer richer table workflows, joins, and dimensions. Included in the six-step sprint plan. | #existing #chris #codex — scope advanced from Next on 2026-10-21 |
 | UX-05 | TODO | P3 / Next | Add synonyms as separate records and include them in discovery. | #existing — planned feature |
+| UX-06 | TODO | P2 / V1 | Persistent save status in a sticky record header (`● Unsaved changes` / `Saving…` / `✓ Saved · rev N · time` / `Couldn't save`) plus a toast; Save disabled when unchanged; ⌘S. Today `st.success` renders at the top and can scroll away. | #chris #claude 2026-10-23 — walkthrough finding; see ux-principles.md |
+| UX-07 | TODO | P2 / V1 | Conflict message names who saved and when and which fields changed; primary action keeps my edits and shows theirs, discard is red/secondary. Today the message says "reload to compare" but the only action is "Reload latest — discard my edits". | #chris #claude 2026-10-23 — walkthrough finding; see ux-principles.md |
+| UX-08 | TODO | P2 / V1 | Provenance panel on the metric page: author, created/changed, origin of the definition, history list. Define V1 contents in the J2 contract. | #claude 2026-10-23 — from product-focus plan |
+| UX-09 | TODO | P2 / V1 | Visual language: type scale, cool slate palette with one accent, status pills, spacing, component set — the "looks cool and modern" bar in ux-principles.md. Settle a reference mockup first. | #chris 2026-10-23 |
 
 ## Validation / readiness
 
