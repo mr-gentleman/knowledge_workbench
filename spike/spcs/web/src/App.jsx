@@ -282,7 +282,7 @@ export default function App() {
         )}
         {nav === 'metrics' && m && editing && (
           <div className="savebar">
-            <span className="what">{piDirtyLive ? 'The spike UI saves only the definition of a live candidate; the API accepts implementations, but this page doesn't send them yet.'
+            <span className="what">{piDirtyLive ? 'The spike UI saves only the definition of a live candidate; the API accepts implementations, but this page does not send them yet.'
               : dirty.length ? <>Editing · unsaved changes in <b>{dirty.join(', ')}</b></> : 'Editing · no changes yet'}</span>
             <button className="btn ghost" onClick={cancel} disabled={busy}>Cancel</button>
             <button className="btn primary" onClick={save} disabled={busy || piDirtyLive}>{busy ? 'Saving…' : 'Save changes'}</button>
