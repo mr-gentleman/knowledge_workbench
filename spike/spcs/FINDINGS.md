@@ -14,6 +14,24 @@
 | Idle cost acceptable | **Pass on the shared pool (≈ today's cost); ~80 cr/mo worst case on a dedicated XS pool** | measured account metering |
 | Feels fast | **Pass locally** (API round trip 8–53 ms against a fake repo). Real latency = Snowflake query time, same as SiS minus Streamlit reruns | local preview |
 
+## FE-01 gate (DEC-018): all three must pass
+
+DEC-018 (2026-10-23, on `claude/product-focus`) makes React on SPCS the V1 front end, gated on this spike. **If attribution fails, React on SPCS is off and DEC-018 is reopened. It does not get downgraded.**
+
+| Gate | Status | Measurement to record (live) |
+|---|---|---|
+| 1. Snowflake login works in the container | Not yet run | Page loads after SSO for a user with `KW_USER`; refused without it |
+| 2. Write attributed to the signed-in user, not a service account | Built; unit-tested against fakes only | `revision.actor`, `metric_candidate.updated_by` and `op_log.actor` = your user after a Save. **And** the forged-header test returns you, not `NOT_ME`. Either failing = gate fails |
+| 3. One read + one write fast enough for search-as-you-type and save | Local only: 8–53 ms against a fake repository, which proves nothing about Snowflake | Search: p50/max of the console timing below. Save: the ms in the Save toast. Proposed bar: search p50 ≲ 300 ms, save ≲ 1.5 s (Chris to confirm) |
+
+Search timing, run in the browser console on the deployed app. It calls the real server-side search (`repositories.list_candidates`, ILIKE, LIMIT 200) once per keystroke:
+```js
+const qs=['n','ne','net','net ','net n','net ne','net new'], t=[];
+for (const q of qs) { const s=performance.now(); await fetch('/api/candidates?search='+encodeURIComponent(q)); t.push(Math.round(performance.now()-s)); }
+t.sort((a,b)=>a-b); console.log('search ms', t, 'p50', t[3], 'max', t[6]);
+```
+Design note for FE-02: every database call shares one connection behind a process-wide lock (DEC-007). Keystroke searches therefore queue behind each other and behind saves. If the measured p50 is borderline, the fix is a client-side debounce, or filtering the already-loaded list (≤ 200 rows) in the browser. That isn't a reason to fail the gate.
+
 ## What was built (`spike/spcs/`)
 
 - `web/`: Vite + React 18 port of the mockup artifact (CodeMirror 5 editor, IBM Plex/Instrument Serif fonts). Everything is bundled; nothing loads from a CDN. Canon entries are still sample data. **Candidates are live:** the list reads `AI_PLATFORM.WORKBENCH.metric_candidate`, opening one loads a fresh baseline, and **Save** edits name, category, description and when-to-use through the API. Toasts show round-trip ms.

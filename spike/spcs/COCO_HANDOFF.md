@@ -70,5 +70,6 @@ If `--create` fails on the system pool, have CoCo create the fallback pool, then
 4. Forged-header test: in the browser devtools console, on the app's own page, run
    `fetch('/api/me',{headers:{'Sf-Context-Current-User':'NOT_ME'}}).then(r=>r.json()).then(console.log)`.
    `user` must still be you. If it shows `NOT_ME`, the identity design fails. Stop and flag it.
+5. Speed (FE-01 gate 3): run the search-timing snippet from FINDINGS.md in the console, and note the ms shown in the Save toast from step 3. Record both in FINDINGS.md.
 
 **Teardown** (CoCo, when the spike ends): `DROP SERVICE IF EXISTS AI_PLATFORM.WORKBENCH.KW_SPIKE; DROP COMPUTE POOL IF EXISTS KW_SPIKE_POOL; DROP IMAGE REPOSITORY IF EXISTS AI_PLATFORM.WORKBENCH.KW_IMAGES;`
