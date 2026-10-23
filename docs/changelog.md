@@ -8,7 +8,7 @@ Details live elsewhere — **why** in [decisions.md](decisions.md) (DEC-…), **
 
 | Date | Commit (branch) | What changed — user-visible first | Why / refs | DDL applied | Verified |
 |---|---|---|---|---|---|
-| 2026-10-23 | `d1b6783` (claude/REL-08-m1-hardening — **not merged to main**) | Failed or interrupted saves can't leak into the next viewer's save; every database call takes the lock; create is safe to retry (same token → same record); sidebar capped at 200; history loads on request; op_log records every save with lock wait; snapshots keep NULL fields | DEC-007, DEC-008; REL-08..12, PLAT-04, PLAT-05, HIST-06 | sql/003 (create_token, op_log) | Chris UI checks pass; op_log + revision rows checked |
+| 2026-10-23 | `d1b6783` (claude/REL-08-m1-hardening — merged to main 2026-10-23) | Failed or interrupted saves can't leak into the next viewer's save; every database call takes the lock; create is safe to retry (same token → same record); sidebar capped at 200; history loads on request; op_log records every save with lock wait; snapshots keep NULL fields | DEC-007, DEC-008; REL-08..12, PLAT-04, PLAT-05, HIST-06 | sql/003 (create_token, op_log) | Chris UI checks pass; op_log + revision rows checked |
 | 2026-10-22 | `8fff6ad` (main) | No user change. Deploy goes through `scripts/deploy.sh`; PyPI packages installable (artifact repo attached) | DEC-005; PLAT-01 | — | Not recorded whether this commit or a later spike was the deployed one |
 | 2026-10-21 | `f597ce4` (main) | Multi-file app deployed from the repo; a new candidate opens right after create, so a second Save can't mint a duplicate | DEC-005; PLAT-01, REL-02 | — | Created #3 on the published app |
 | 2026-10-21 | `729bb7d` (coco/plat-01) | First multi-file deploy; app starts on the container runtime (pyproject.toml shipped) | DEC-005; PLAT-01 | — | Created #2 and edited it: one edit revision |
@@ -20,18 +20,18 @@ but no commit was noted.
 
 ## In flight (branches not merged to main) — snapshot 2026-10-23
 
+Merged to main 2026-10-23: REL-08-m1-hardening, ux-quick-fixes (deploy still unrecorded), PLAT-08-astra-review (includes PLAT-07; its branch can be deleted).
+
 Refresh when you merge to main or push a new branch. Live list:
 `git fetch && git branch -r --no-merged origin/main`.
 
 | Branch | What it does | Refs | State |
 |---|---|---|---|
-| claude/REL-08-m1-hardening | M1 hardening (see the 2026-10-23 release) | DEC-007, DEC-008 | **Deployed, not merged** |
-| claude/ux-quick-fixes | Discard only on a conflict; search as you type; lighter save; department names | DEC-015..017 | Built on M1; deploy unknown |
-| claude/sql-on-page | Add and edit SQL implementations (PIs) on the candidate page, save per card; run-status wording | UX-01, UX-02 | Built on ux-quick-fixes |
-| claude/save-proc | Candidate saves are one CALL to a stored procedure (est. 20–30% faster) | DEC-018, PLAT-09 | Needs sql/004 applied by CoCo before deploy |
+| claude/sql-on-page | PI backend (create/edit/retire, run status); Streamlit SQL card dropped per DEC-018 | UX-01, UX-02, DEC-019 | Built on ux-quick-fixes |
+| claude/sql-on-page-streamlit-ui | Same PI backend plus Streamlit PI cards | UX-01, UX-02 | Likely superseded while Streamlit stays frozen (DEC-018) |
+| claude/spcs-spike | React + FastAPI on SPCS; whole-page Edit with PIs; optimistic save; hybrid-table benchmark (2.7 s → 1.0 s) | DEC-018, FE-01, HYBRID_BENCH.md | Live spike; includes save-proc |
+| claude/save-proc | Candidate saves are one CALL to a stored procedure | DEC-020, DEC-021, PLAT-09 | Measured slower live (CALL ~4 s vs ~2.8 s); don't deploy for speed |
 | claude/product-focus | Workflow-first V1, UX principles, journey contracts, walkthroughs, DEC-012..017 | DEC-012..017 | Docs only |
 | claude/ux-exemplars | UX pattern library P1–P28 from outside sites | — | Docs only; built on product-focus |
-| claude/PLAT-07-health-readout | Code-health readout script + PR template | PLAT-07 | Tooling |
-| claude/PLAT-08-astra-review | One-shot Astra review script; DDL → CoCo handoff rule | PLAT-08 | Tooling; includes PLAT-07 |
 | claude/comparison-slice, codex/frontend-independent-plan | Streamlit vs React comparison; authoring MVP; frontend portability | — | Docs only |
 | codex/access-test-2026-10-21 | Work-configuration access test note | — | Docs only; likely stale |
