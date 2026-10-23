@@ -1,9 +1,11 @@
 """Knowledge Workbench — slice 1: metric candidates (browse · create · edit · history)."""
 import json
 import logging
+import time
 import uuid
 
 import streamlit as st
+from st_keyup import st_keyup
 
 from app import repositories as repo
 from app import services
@@ -18,11 +20,16 @@ if st.sidebar.toggle("SQL editor spike", key="spike_editor"):  # throwaway — r
     editor_spike.render()
     st.stop()
 
-DEPARTMENTS = ["", "finance", "marketing", "sales", "customer", "product", "bi_meta", "misc"]
+DEPARTMENTS = ["", *services.DEPARTMENTS]
+LIST_TTL_S = 30  # how stale the sidebar may be for saves made by other viewers
 
 
 def _flash(outcome: services.Outcome):
-    (st.success if outcome.ok else st.error)(outcome.message)
+    # Success is a toast: it can't scroll out of view (docs/ux-principles.md, rule 2).
+    if outcome.ok:
+        st.toast(f"✓ {outcome.message}")
+    else:
+        st.error(outcome.message)
     for w in outcome.warnings:
         st.warning(w)
 
@@ -38,28 +45,55 @@ def guarded(fn, *args):
         st.stop()
 
 
-def candidate_form(key: str, current: dict | None = None, with_note: bool = True):
+def candidate_form(key: str, current: dict | None = None, with_note: bool = True,
+                   save_disabled: bool = False):
     c = current or {}
     with st.form(key):
         full_name = st.text_input("Name *", c.get("FULL_NAME") or "", key=f"{key}:full_name")
-        dept = c.get("DEPARTMENT") or ""
+        dept = services.department(c.get("DEPARTMENT")) or ""
         department = st.selectbox("Department", DEPARTMENTS, index=DEPARTMENTS.index(dept) if dept in DEPARTMENTS else 0, key=f"{key}:department")
         category = st.text_input("Category", c.get("CATEGORY") or "", key=f"{key}:category")
         description = st.text_area("Description", c.get("DESCRIPTION") or "", height=160, key=f"{key}:description")
         disambig = st.text_area("When to use / how it differs", c.get("DISAMBIG") or "", height=80, key=f"{key}:disambig")
         note = st.text_input("Change note (optional)", c.get("_NOTE") or "", key=f"{key}:note") if with_note else None
-        submitted = st.form_submit_button("Save", type="primary")
+        submitted = st.form_submit_button("Save", type="primary", disabled=save_disabled)
     fields = dict(full_name=full_name, category=category,
                   description=description, disambig=disambig,
                   department=department or None)
     return submitted, fields, note
 
 
+def recent_candidates():
+    """Cached per browser session, so typing a search or switching records costs no query.
+    Refreshed after LIST_TTL_S and after this viewer saves (forget_recent)."""
+    cache = st.session_state.get("recent")
+    if cache is None or time.monotonic() - cache[0] > LIST_TTL_S:
+        cache = st.session_state["recent"] = (time.monotonic(), guarded(repo.list_candidates, ""))
+    return cache[1]
+
+
+def forget_recent():
+    st.session_state.pop("recent", None)
+
+
+def matching(search: str):
+    rows, q = recent_candidates(), search.strip().lower()
+    if not q:
+        return rows
+    if len(rows) == repo.LIST_LIMIT:  # the cap may hide older matches: search the table
+        return guarded(repo.list_candidates, q)
+    return [r for r in rows
+            if q in " ".join(filter(None, (r["FULL_NAME"], r["DESCRIPTION"], r["DISAMBIG"]))).lower()]
+
+
 # ── sidebar: search + pick ─────────────────────────────────────────────────
 st.sidebar.title("Knowledge Workbench")
 st.sidebar.caption(f"Signed in as **{viewer()}**")
-search = st.sidebar.text_input("Search metrics")
-rows = guarded(repo.list_candidates, search)
+with st.sidebar:
+    # Searches as you type, after a 300 ms pause (st.text_input only reports on Enter).
+    search = st_keyup("Search metrics", key="search", debounce=300,
+                      placeholder="Name, description, when to use")
+rows = matching(search)
 if len(rows) == repo.LIST_LIMIT:
     st.sidebar.caption(f"Showing the {repo.LIST_LIMIT} most recently updated — search to narrow.")
 # Stable IDs keep a concurrent rename/reordering from selecting a different record.
@@ -79,8 +113,9 @@ selected = st.sidebar.radio(
     key="selected_candidate", label_visibility="collapsed",
 )
 
-if "edit_feedback" in st.session_state:
-    _flash(st.session_state.pop("edit_feedback"))
+feedback = st.session_state.pop("edit_feedback", None)
+if feedback:
+    _flash(feedback)
 
 # ── main ────────────────────────────────────────────────────────────────────
 # Editor state persists per record for the browser session. On arriving at a record with
@@ -110,13 +145,16 @@ if selected is None:
                 create.update(token=uuid.uuid4().hex, generation=create["generation"] + 1, payload=None)
                 st.session_state["just_created"] = prior
                 st.session_state["edit_feedback"] = services.Outcome(
-                    True, f"Your earlier save did go through as #{prior}. It's open now — "
-                          "apply your newer changes here.", prior)
+                    True, f"Saved earlier as #{prior}.", prior, warnings=[(
+                        f"Your earlier save did go through as #{prior}. It's open now — "
+                        "apply your newer changes here.")])
+                forget_recent()
                 st.rerun()
             # It didn't land, so the token is unused: the new entries can take it.
         create["payload"] = fields
         try:
-            out = services.save_new_candidate(fields, viewer(), create["token"])
+            with st.spinner("Saving…"):
+                out = services.save_new_candidate(fields, viewer(), create["token"])
         except ConnectionQuarantined as exc:
             st.error(f"Not saved: {exc}")
         except Exception:
@@ -130,6 +168,7 @@ if selected is None:
                 create.update(token=uuid.uuid4().hex, generation=create["generation"] + 1, payload=None)
                 st.session_state["just_created"] = out.record_id
                 st.session_state["edit_feedback"] = out
+                forget_recent()
                 st.rerun()
             _flash(out)
 else:
@@ -149,15 +188,11 @@ else:
     if cand is None:
         st.error("This candidate no longer exists.")
         st.stop()
-    if st.button("Reload latest — discard my edits", key=f"reload:{selected}"):
-        editor["baseline"] = guarded(repo.get_candidate, selected)
-        editor["generation"] += 1  # New widget keys discard the old form values.
-        editor.pop("draft", None)
-        editor.pop("draft_note", None)
-        st.rerun()
     st.header(cand["FULL_NAME"])
+    just_saved = feedback is not None and feedback.ok and feedback.record_id == selected
     st.caption(
-        f"Candidate #{cand['CANDIDATE_ID']} · rev {cand['REVISION_NO']} · {cand['STATUS']} · "
+        (f"✓ Saved · rev {cand['REVISION_NO']} · just now  \n" if just_saved else "")
+        + f"Candidate #{cand['CANDIDATE_ID']} · rev {cand['REVISION_NO']} · {cand['STATUS']} · "
         f"author {cand['ORIGINAL_AUTHOR'] or 'unknown'} · last edit {cand['UPDATED_BY']} "
         f"{cand['UPDATED_AT']:%Y-%m-%d %H:%M}"
     )
@@ -170,13 +205,14 @@ else:
             form_record.update({k.upper(): v for k, v in editor["draft"].items()})
             form_record["_NOTE"] = editor.get("draft_note")
         st.caption("Edits are kept only after you press Save — switching records discards unsaved changes.")
+        conflict = editor.get("conflict")  # an Outcome; Save stays off until the user picks an action
         submitted, fields, note = candidate_form(
-            f"edit-{selected}-{editor['generation']}", form_record)
+            f"edit-{selected}-{editor['generation']}", form_record, save_disabled=conflict is not None)
         if submitted:
             editor["draft"], editor["draft_note"] = fields, note
             try:
-                out = services.save_candidate_edit(
-                    selected, cand["REVISION_NO"], fields, viewer(), note)
+                with st.spinner("Saving…"):
+                    out = services.save_candidate_edit(cand, fields, viewer(), note)
             except ConnectionQuarantined as exc:
                 st.error(f"Not saved: {exc} Your draft is retained.")
             except Exception:
@@ -192,8 +228,40 @@ else:
                     editor.pop("draft_note", None)
                     editor["refresh"] = True
                     st.session_state["edit_feedback"] = out
+                    forget_recent()
+                    st.rerun()
+                if out.latest is not None:
+                    editor["conflict"] = out
                     st.rerun()
                 _flash(out)
+        if conflict is not None:
+            # Next to Save, only when a save was refused. Keeping my edits is the default;
+            # discarding them is the secondary choice (docs/ux-principles.md, Conflict).
+            st.error(conflict.message)
+            latest = conflict.latest
+            with st.expander("Their version", expanded=True):
+                for k in services.EDITABLE:
+                    if (cand[k.upper()] or None) != (latest[k.upper()] or None):
+                        st.markdown(f"**{services.LABELS[k]}**")
+                        st.text(latest[k.upper()] or "(empty)")
+            st.caption("Keeping your edits applies them to the latest version: fields you didn't "
+                       "change take their values. Review, then Save.")
+            keep, discard = st.columns(2)
+            if keep.button("Keep my edits on the latest version", type="primary", key=f"keep:{selected}"):
+                # Per-field merge, so their changes to fields I didn't touch aren't reverted.
+                draft = editor["draft"]
+                editor["draft"] = {k: draft[k] if (draft[k] or None) != (cand[k.upper()] or None)
+                                   else latest[k.upper()] for k in draft}
+                editor["baseline"] = latest
+                editor["generation"] += 1  # reload the form from the merged draft
+                del editor["conflict"]
+                st.rerun()
+            if discard.button("Discard mine, load theirs", key=f"discard:{selected}"):
+                editor["baseline"] = latest
+                editor["generation"] += 1  # New widget keys discard the old form values.
+                for k in ("draft", "draft_note", "conflict"):
+                    editor.pop(k, None)
+                st.rerun()
     with tab_hist:
         # Tabs all render on every rerun, so history (full JSON snapshots) loads only on request (PLAT-05).
         if st.toggle("Show history", key=f"hist:{selected}"):
