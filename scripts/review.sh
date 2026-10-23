@@ -46,10 +46,12 @@ if [ "${2:-}" != "--yes" ]; then
   rm -f "$PROMPT"; exit 0
 fi
 
-git switch -q "$BRANCH"
+# Astra reads the branch from a throwaway worktree, so this checkout stays where it is.
+TREE=$(mktemp -d); git worktree add -q --detach "$TREE" "$BRANCH"
+trap 'git worktree remove --force "$TREE"' EXIT
 mkdir -p docs/reviews
 { echo "# Astra review — $BRANCH ($(git rev-parse --short "$BRANCH"), $(date +%F))"; echo; } > "$OUT"
-~/.local/bin/cortex exec -m "$MODEL" -c "$CONN" --mode code --no-mcp \
+~/.local/bin/cortex exec -m "$MODEL" -c "$CONN" -w "$TREE" --mode code --no-mcp \
   --allowed "Read,Grep,Glob" --max-turns 15 --private -o "$OUT.tmp" < "$PROMPT" >/dev/null
 cat "$OUT.tmp" >> "$OUT" && rm -f "$OUT.tmp" "$PROMPT"
-echo "Saved $OUT"; tail -1 "$OUT"
+echo "Saved $OUT (commit it on $BRANCH)"; tail -1 "$OUT"
