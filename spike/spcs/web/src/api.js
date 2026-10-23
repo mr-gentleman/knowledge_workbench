@@ -15,5 +15,5 @@ async function call(method, path, body) {
 export const getMe = () => call('GET', '/api/me');
 export const listCandidates = () => call('GET', '/api/candidates');
 export const getCandidate = id => call('GET', `/api/candidates/${id}`);
-export const saveCandidate = (id, expected_revision, fields) =>
-  call('PUT', `/api/candidates/${id}`, { expected_revision, fields });
+// docs/plans/metric-save-contract.md (DEC-020): one call for the whole page. The spike sends no calcs yet.
+export const saveMetric = (candidate, calcs = []) => call('POST', '/api/metrics/save', { candidate, calcs });

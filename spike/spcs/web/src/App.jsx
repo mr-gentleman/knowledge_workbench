@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import SqlEditor from './SqlEditor.jsx';
 import { FACT, SAMPLE_CANON, pi } from './sample.js';
-import { getCandidate, getMe, listCandidates, saveCandidate } from './api.js';
+import { getCandidate, getMe, listCandidates, saveMetric } from './api.js';
 
 const DEPT_LABEL = d => (d ? d[0].toUpperCase() + d.slice(1) : 'Unassigned');
 
@@ -25,7 +25,7 @@ function piStatus(p) {
   return <span className="badge ok">✓ Passed · rev {p.validatedRev}</span>;
 }
 
-function PiRow({ p, open, onToggle, onChange, onDefault, showDefault, orig }) {
+function PiRow({ p, open, onToggle, onChange, onDefault, onRemove, showDefault, orig, editing }) {
   const grain = FACT[p.table] || '—';
   const [check, setCheck] = useState(null);
   const short = p.table.split('.').slice(-1)[0];
@@ -45,7 +45,14 @@ function PiRow({ p, open, onToggle, onChange, onDefault, showDefault, orig }) {
         <span className="grain">{grain}</span><span className="tbl">{short}</span>
         <span className="right">{p.isDefault && showDefault ? <span className="badge plain">Default</span> : null}{piStatus(p)}</span>
       </button>
-      {open && (
+      {open && !editing && (
+        <div className="pibody">
+          {p.disambig ? <p className="readtext">{p.disambig}</p> : null}
+          <pre className="sqlread">{p.sql}</pre>
+          <span className="served">{p.served ? `Agent uses rev ${p.served}` : 'Not served yet'} · Source: {p.source === 'sme' ? 'SME' : 'Auto-generated'}</span>
+        </div>
+      )}
+      {open && editing && (
         <div className="pibody">
           <SqlEditor id={'sql-' + p.id} fileName={short + '.sql'} value={p.sql}
             onChange={v => onChange({ sql: v, rev: orig && v !== orig.sql ? orig.rev + 1 : p.rev, status: orig && v !== orig.sql ? 'stale' : p.status })} />
@@ -73,7 +80,7 @@ function PiRow({ p, open, onToggle, onChange, onDefault, showDefault, orig }) {
           <div className="edbar">
             {showDefault ? <label className="radio"><input type="radio" name="default-pi" checked={p.isDefault} onChange={onDefault} /> Default implementation</label> : null}
             <span className="served">{p.served ? <>Agent uses <b>rev {p.served}</b>{p.rev !== p.served ? ` · you're editing rev ${p.rev}` : null}</> : 'Not served yet'}</span>
-            <span className="served" style={{ marginLeft: 'auto' }}>Source: {p.source === 'sme' ? 'SME' : 'Auto-generated'}</span>
+            <button className="btn ghost" style={{ marginLeft: 'auto' }} onClick={onRemove}>Remove implementation</button>
           </div>
         </div>
       )}
@@ -95,6 +102,7 @@ export default function App() {
   const [live, setLive] = useState({ state: 'loading' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false); // DEC-020: read mode until Edit; one session per page
 
   const flash = msg => { setToast(msg); setTimeout(() => setToast(''), 2600); };
 
@@ -127,12 +135,14 @@ export default function App() {
       const o = orig.pis.find(x => x.id === p.id);
       if (!o || o.sql !== p.sql || o.table !== p.table || o.disambig !== p.disambig || o.isDefault !== p.isDefault) dirty.push('implementation ' + (i + 1));
     });
+    const removed = orig.pis.filter(o => !m.pis.some(p => p.id === o.id)).length;
+    if (removed) dirty.push(`${removed} removed implementation${removed > 1 ? 's' : ''}`);
   }
   const changed = k => (orig && m[k] !== orig[k] ? ' changed' : '');
 
   // Opening a live candidate loads a fresh baseline (its revision is what the save is checked against).
   const pick = k => {
-    setSel(k); setError('');
+    setSel(k); setError(''); setEditing(false);
     const t = data.find(x => x.key === k);
     setOpenPi(t.pis[0]?.id ?? null);
     if (!t.live) return;
@@ -145,17 +155,18 @@ export default function App() {
   const save = async () => {
     if (!m.live) {
       const nm = { ...m, rev: m.rev + 1 };
-      setData(d => replace(d, nm)); setSaved(s => replace(s, nm));
+      setData(d => replace(d, nm)); setSaved(s => replace(s, nm)); setEditing(false);
       return flash(`Saved ${m.name} · revision ${nm.rev} (sample, not persisted)`);
     }
     setBusy(true); setError('');
     try {
       const fields = { full_name: m.name, description: m.description, disambig: m.disambig, department: m.deptRaw, category: m.category };
-      const { data: out, ms } = await saveCandidate(m.cid, orig.rev, fields);
-      if (!out.ok) { setError(out.message); return; }
-      const nm = { ...m, rev: out.revision_no, updatedBy: me?.user };
-      setData(d => replace(d, nm)); setSaved(s => replace(s, nm));
-      flash(`${out.message} ${m.id} · revision ${out.revision_no} · ${ms} ms`);
+      const { data: out, ms } = await saveMetric({ id: m.cid, expected_revision: orig.rev, fields });
+      // conflict / invalid: nothing was written; stay in Edit with the draft intact.
+      if (out.status !== 'saved' && out.status !== 'no_change') { setError(out.message); return; }
+      const nm = { ...m, rev: out.candidate_revision, updatedBy: out.status === 'saved' ? me?.user : m.updatedBy };
+      setData(d => replace(d, nm)); setSaved(s => replace(s, nm)); setEditing(false);
+      flash(out.status === 'saved' ? `Saved ${m.id} · revision ${out.candidate_revision} · ${ms} ms` : `No changes · ${ms} ms`);
       if (out.warnings?.length) setError(out.warnings.join(' '));
     } catch (e) {
       setError(`Save failed: ${e.message}`);
@@ -163,7 +174,7 @@ export default function App() {
       setBusy(false);
     }
   };
-  const discard = () => setData(d => d.map(x => (x.key === sel ? orig : x)));
+  const cancel = () => { setData(d => d.map(x => (x.key === sel ? orig : x))); setEditing(false); setError(''); };
   const addPi = () => {
     const id = Date.now();
     setM({ pis: [...m.pis, pi(id, 'AC.conformed_dimensions.cohort_account_monthly_consolidation', '-- New implementation\nSELECT\n    \nFROM AC.\nWHERE ', { isDefault: m.pis.length === 0, validatedRev: 0, rev: 1, served: null, status: 'stale', source: 'sme' })] });
@@ -222,7 +233,15 @@ export default function App() {
         ) : m && (
           <div className="page">
             <div className="crumbs">{m.dept} / {m.category || 'Uncategorized'}</div>
-            <div className="title"><h1>{m.name}</h1>{m.kind === 'canon' ? <span className="badge canon">Canon · #{m.id}</span> : <span className="badge cand">Candidate · {m.id}</span>}</div>
+            <div className="title">
+              <h1>{m.name}</h1>{m.kind === 'canon' ? <span className="badge canon">Canon · #{m.id}</span> : <span className="badge cand">Candidate · {m.id}</span>}
+              {!editing && (
+                <span className="titleactions">
+                  {m.kind === 'cand' ? <button className="btn" disabled={missing.length > 0}>Promote to canon</button> : null}
+                  <button className="btn primary" onClick={() => setEditing(true)} disabled={m.live && !m.loaded}>Edit</button>
+                </span>
+              )}
+            </div>
             <div className="meta">
               <span>Revision <b>{m.rev}</b></span><span>Source <b>{m.source}</b></span><span>Original author <b>{m.author}</b></span>
               {m.live ? <span>Last saved by <b>{m.updatedBy}</b></span> : <span>Slug <b>{m.key}</b></span>}
@@ -233,35 +252,40 @@ export default function App() {
 
             <section className="section">
               <div className="sechead"><h3>Definition</h3><div className="rule" /></div>
-              <div className="grid2">
-                <div className="field"><label htmlFor="f-name">Full name</label><input id="f-name" className={'input' + changed('name')} value={m.name} onChange={e => setM({ name: e.target.value })} /></div>
-                <div className="field"><label htmlFor="f-cat">Category</label><input id="f-cat" className={'input' + changed('category')} value={m.category} onChange={e => setM({ category: e.target.value })} /></div>
-              </div>
-              <div className="field"><label htmlFor="f-desc">Description</label><textarea id="f-desc" className={'ta' + changed('description')} rows="2" value={m.description} onChange={e => setM({ description: e.target.value })} /></div>
-              <div className="field"><label htmlFor="f-dis">When to use · how it differs</label><textarea id="f-dis" className={'ta' + changed('disambig')} rows="2" value={m.disambig} placeholder="e.g. Use for revenue retention including expansion; for logo counts see Logo Churn Count." onChange={e => setM({ disambig: e.target.value })} /></div>
+              {editing ? (<>
+                <div className="grid2">
+                  <div className="field"><label htmlFor="f-name">Full name</label><input id="f-name" className={'input' + changed('name')} value={m.name} onChange={e => setM({ name: e.target.value })} /></div>
+                  <div className="field"><label htmlFor="f-cat">Category</label><input id="f-cat" className={'input' + changed('category')} value={m.category} onChange={e => setM({ category: e.target.value })} /></div>
+                </div>
+                <div className="field"><label htmlFor="f-desc">Description</label><textarea id="f-desc" className={'ta' + changed('description')} rows="2" value={m.description} onChange={e => setM({ description: e.target.value })} /></div>
+                <div className="field"><label htmlFor="f-dis">When to use · how it differs</label><textarea id="f-dis" className={'ta' + changed('disambig')} rows="2" value={m.disambig} placeholder="e.g. Use for revenue retention including expansion; for logo counts see Logo Churn Count." onChange={e => setM({ disambig: e.target.value })} /></div>
+              </>) : (<>
+                <div className="field"><label>Description</label><p className="readtext">{m.description || <span className="muted">No description yet.</span>}</p></div>
+                <div className="field"><label>When to use · how it differs</label><p className="readtext">{m.disambig || <span className="muted">Not written yet.</span>}</p></div>
+              </>)}
             </section>
 
             <section className="section">
               <div className="sechead"><h3>Implementations · {m.pis.length}</h3><div className="rule" /></div>
               <div className="pis">
                 {m.pis.map(p => (
-                  <PiRow key={p.id} p={p} orig={orig.pis.find(o => o.id === p.id)} open={openPi === p.id} showDefault={m.pis.length > 1}
+                  <PiRow key={p.id} p={p} orig={orig.pis.find(o => o.id === p.id)} open={openPi === p.id} showDefault={m.pis.length > 1} editing={editing}
                     onToggle={() => setOpenPi(openPi === p.id ? null : p.id)} onChange={patch => setPi(p.id, patch)}
+                    onRemove={() => setM({ pis: m.pis.filter(x => x.id !== p.id) })}
                     onDefault={() => setM({ pis: m.pis.map(x => ({ ...x, isDefault: x.id === p.id })) })} />
                 ))}
-                {!m.pis.length && <div className="empty" style={{ padding: '16px 14px' }}>No implementations yet. Add the SQL that computes this metric.</div>}
-                <button className="addpi" onClick={addPi}>+ Add implementation</button>
+                {!m.pis.length && <div className="empty" style={{ padding: '16px 14px' }}>No implementations yet.{editing ? ' Add the SQL that computes this metric.' : ''}</div>}
+                {editing && <button className="addpi" onClick={addPi}>+ Add implementation</button>}
               </div>
             </section>
           </div>
         )}
-        {nav === 'metrics' && m && (
+        {nav === 'metrics' && m && editing && (
           <div className="savebar">
-            <span className="what">{piDirtyLive ? 'Implementations on live candidates aren’t saved in this spike — discard them to save the definition.'
-              : dirty.length ? <>Unsaved changes in <b>{dirty.join(', ')}</b></> : 'All changes saved'}</span>
-            <button className="btn ghost" onClick={discard} disabled={!dirty.length || busy}>Discard</button>
-            {m.kind === 'cand' ? <button className="btn" disabled={missing.length > 0}>Promote to canon</button> : null}
-            <button className="btn primary" onClick={save} disabled={!dirty.length || busy || piDirtyLive || (m.live && !m.loaded)}>{busy ? 'Saving…' : 'Save'}</button>
+            <span className="what">{piDirtyLive ? 'The spike persists only the definition of a live candidate. Saving implementations arrives with services.save_metric.'
+              : dirty.length ? <>Editing · unsaved changes in <b>{dirty.join(', ')}</b></> : 'Editing · no changes yet'}</span>
+            <button className="btn ghost" onClick={cancel} disabled={busy}>Cancel</button>
+            <button className="btn primary" onClick={save} disabled={busy || piDirtyLive}>{busy ? 'Saving…' : 'Save changes'}</button>
           </div>
         )}
       </main>

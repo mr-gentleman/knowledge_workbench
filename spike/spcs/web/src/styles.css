@@ -49,6 +49,10 @@ body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px
 .crumbs{color:var(--muted);font-size:12.5px}
 .title{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
 .title h1{margin:0;font:400 38px/1.1 var(--display);text-wrap:balance}
+.titleactions{margin-left:auto;display:flex;gap:8px}
+.readtext{margin:0;font:14px/1.6 var(--sans);white-space:pre-wrap}
+.muted{color:var(--muted)}
+.sqlread{margin:0;padding:10px 12px;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;font:12.5px/1.6 var(--mono);overflow-x:auto}
 .badge{display:inline-flex;align-items:center;gap:5px;font:600 11px var(--sans);letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:5px}
 .badge.canon{background:var(--accent-soft);color:var(--accent)} .badge.cand{background:var(--berry-soft);color:var(--berry)}
 .badge.ok{background:var(--ok-soft);color:var(--ok)} .badge.warn{background:var(--warn-soft);color:var(--warn)} .badge.bad{background:var(--bad-soft);color:var(--bad)}
