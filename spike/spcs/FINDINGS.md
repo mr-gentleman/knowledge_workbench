@@ -25,6 +25,7 @@
 - **First live read failed on paramstyle:** `/api/candidates` returned 500 because our own `snowflake.connector.connect()` defaulted to `pyformat` while the repository SQL uses `?` (the `'%' || ? || '%'` in `list_candidates` raised "unsupported format character"). Fixed by binding `qmark` (a01d545) in one redeploy: 29 s build+push, 64 s rollout.
 - **Auto-suspend refused:** `ALTER SERVICE AI_PLATFORM.WORKBENCH.KW_SPIKE SET AUTO_SUSPEND_SECS = 1800` → `395101: Auto suspend is not supported for services with public endpoints`. `auto_suspend_secs` stays 0. Cost control = `ALTER SERVICE … SUSPEND` by hand, or a scheduled suspend/resume, or teardown.
 - Live checks 1–5 run 2026-10-23; results in the FE-01 table.
+- **Save → one CALL (merged `claude/save-proc`, PLAT-09):** `/api/metrics/save` now calls `services.save_metric`, which runs one `CALL AI_PLATFORM.WORKBENCH.save_metric(?)` in place of ~7 statements. The client may send `op_id` for safe retries. The branch estimates 2.4 s → ~1.8–2.2 s, with a floor of ~1.5 s on standard tables. **Blocked:** the procedure doesn't exist yet (`SHOW PROCEDURES` returns nothing). `sql/004_save_metric_proc.sql` must be created as ACCOUNTADMIN (docs/save-proc-handoff.md §1–2) *before* the next spike deploy, or every save fails. Re-measure gate 3's save after that.
 
 ## FE-01 gate (DEC-018): all three must pass
 

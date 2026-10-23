@@ -1,5 +1,6 @@
 """Local regression tests; Snowflake transaction behavior still needs live testing."""
 import copy
+import json
 import threading
 import unittest
 from datetime import datetime
@@ -16,29 +17,19 @@ class FakeSession:
     """Records every statement. fail: {substring: [exceptions to raise, in order]};
     rows: {substring: result rows}. CURRENT_TRANSACTION() is NULL unless rows say otherwise."""
 
-    def __init__(self, fail=None, rows=None, tag_fail=()):
-        self.calls, self.tags, self.tag_fail = [], [], list(tag_fail)
+    def __init__(self, fail=None, rows=None):
+        self.calls, self.results = [], []
         self.fail = {k: list(v) for k, v in (fail or {}).items()}
         self.rows = {"CURRENT_TRANSACTION": [[None]], **(rows or {})}
-
-    @property
-    def query_tag(self):
-        return self.tags[-1] if self.tags else ""
-
-    @query_tag.setter
-    def query_tag(self, value):
-        if value in self.tag_fail:
-            self.tag_fail.remove(value)
-            raise RuntimeError("tag failed")
-        self.tags.append(value)
 
     @property
     def statements(self):
         return [text for text, _ in self.calls]
 
     def sql(self, text, params=None):
-        self.calls.append((text, params))
         result = Mock()
+        self.calls.append((text, params))
+        self.results.append(result)
         for key, errors in self.fail.items():
             if key in text and errors:
                 result.collect.side_effect = errors.pop(0)
@@ -46,12 +37,15 @@ class FakeSession:
         result.collect.return_value = next((v for k, v in self.rows.items() if k in text), [[1]])
         return result
 
-    def op_log(self):
-        return [params for text, params in self.calls if "INTO AI_PLATFORM.WORKBENCH.op_log" in text]
-
 
 class Interrupt(BaseException):
     """Stands in for Streamlit's StopException, which escapes `except Exception`."""
+
+
+def keyup_as_text_input(label, value="", key=None, placeholder="", **_):
+    """AppTest can't drive custom components; the search box behaves like a text input."""
+    import streamlit as st
+    return st.text_input(label, value, key=key, placeholder=placeholder)
 
 
 def fresh_state(test):
@@ -59,149 +53,102 @@ def fresh_state(test):
     test.addCleanup(db._state.clear)
 
 
-class TransactionTests(unittest.TestCase):
-    """DEC-007: a failed or interrupted transaction can't leak into the next viewer's save."""
+def call_save(s, result=None, candidate=None, calcs=(), op_id="op1", note=None, check="x"):
+    """repo.save_metric against a FakeSession whose CALL returns result."""
+    if result is not None:
+        s.rows["CALL"] = [[json.dumps(result)]]
+    with patch.object(db, "session", return_value=s):
+        return repo.save_metric(op_id, "viewer", candidate or {"id": 1, "expected_revision": 3,
+                                "fields": {"full_name": "X", "category": ""}}, list(calcs), note, check)
+
+
+class SaveProcedureTests(unittest.TestCase):
+    """DEC-021: every save is one CALL; the procedure owns the transaction and op_log, and a failed
+    CALL can't leak an uncertain state into the next viewer's work (DEC-007, DEC-008)."""
 
     def setUp(self):
         fresh_state(self)
 
-    def run_update(self, s, expected=1):
-        with patch.object(db, "session", return_value=s):
-            return repo.update_candidate(1, expected, {"full_name": "Test"}, "tester")
-
-    def test_snapshot_failure_rolls_back_and_logs(self):
-        s = FakeSession(fail={"INTO AI_PLATFORM.WORKBENCH.revision": [RuntimeError("snapshot failed")]})
-        with self.assertRaisesRegex(RuntimeError, "snapshot failed"):
-            self.run_update(s)
-        self.assertEqual(s.statements[0], "BEGIN")
-        self.assertIn("ROLLBACK", s.statements)
-        self.assertNotIn("COMMIT", s.statements)
-        self.assertEqual(s.op_log()[0][4], "rolled_back")
+    def test_one_statement_carrying_viewer_revision_and_tag(self):
+        s = FakeSession()
+        res = call_save(s, {"outcome": "committed", "candidate_id": 1, "candidate_revision": 4},
+                        note="why")
+        self.assertEqual(res["candidate_revision"], 4)
+        self.assertEqual(s.statements, ["CALL AI_PLATFORM.WORKBENCH.save_metric(?)"])  # no BEGIN/COMMIT/ALTER
+        req = json.loads(s.calls[0][1][0])
+        self.assertEqual(req["actor"], "viewer")  # attribution = the viewer passed in
+        self.assertEqual((req["candidate"]["id"], req["candidate"]["expected_revision"]), (1, 3))
+        self.assertIsNone(req["candidate"]["fields"]["category"])  # "" travels as NULL
+        self.assertEqual((req["change_note"], req["check_name"], req["schema_version"]),
+                         ("why", "x", repo.SNAPSHOT_VERSION))
+        tag = json.loads(s.results[0].collect.call_args.kwargs["statement_params"]["QUERY_TAG"])
+        self.assertEqual((tag["op_id"], tag["actor"]), ("op1", "viewer"))  # same op_id as op_log
         self.assertFalse(db.is_dirty())
 
-    def test_zero_rows_is_a_conflict_without_snapshot(self):
-        s = FakeSession(rows={"UPDATE": [[0]]})
-        with self.assertRaises(repo.StaleEdit):
-            self.run_update(s)
-        self.assertFalse(any("INTO AI_PLATFORM.WORKBENCH.revision" in q for q in s.statements))
-        self.assertEqual(s.op_log()[0][4], "conflict")
+    def test_failed_or_interrupted_call_quarantines(self):
+        for exc in (RuntimeError("lost ack"), Interrupt()):
+            db._state.clear()
+            with self.assertRaises(type(exc)):
+                call_save(FakeSession(fail={"CALL": [exc]}))
+            self.assertTrue(db.is_dirty())
 
-    def test_failed_rollback_quarantines_until_proven_clean(self):
-        # REL-08: snapshot fails + ROLLBACK fails → the next save must not COMMIT the abandoned change.
-        s = FakeSession(fail={"INTO AI_PLATFORM.WORKBENCH.revision": [RuntimeError("snapshot failed")],
-                              "ROLLBACK": [RuntimeError("rollback failed")]})
-        with self.assertRaises(RuntimeError) as caught:
-            self.run_update(s)
-        self.assertIn("ROLLBACK also failed", "".join(caught.exception.__notes__))
-        self.assertTrue(db.is_dirty())
-        self.assertEqual(s.op_log(), [])  # an INSERT now would join the abandoned transaction
-        self.assertNotIn("", s.tags[1:])  # nor may the tag be unset (ALTER SESSION)
+    def test_quarantine_is_healed_before_the_next_call(self):
+        s = FakeSession(fail={"CALL": [RuntimeError("lost ack")]})
+        with self.assertRaises(RuntimeError):
+            call_save(s)
         first = len(s.calls)
-        self.assertEqual(self.run_update(s), 2)
-        after = s.statements[first:]
-        self.assertEqual(after[:2], ["ROLLBACK", "SELECT CURRENT_TRANSACTION()"])
-        self.assertLess(after.index("ROLLBACK"), after.index("BEGIN"))
+        call_save(s, {"outcome": "committed", "candidate_id": 1, "candidate_revision": 4})
+        self.assertEqual(s.statements[first:], ["ROLLBACK", "SELECT CURRENT_TRANSACTION()",
+                                                "CALL AI_PLATFORM.WORKBENCH.save_metric(?)"])
         self.assertFalse(db.is_dirty())
 
     def test_open_transaction_after_heal_blocks_all_work(self):
         db.mark_dirty()
         s = FakeSession(rows={"CURRENT_TRANSACTION": [["1234"]]})
         with self.assertRaises(db.ConnectionQuarantined):
-            self.run_update(s)
+            call_save(s)
         with self.assertRaises(db.ConnectionQuarantined), patch.object(db, "session", return_value=s):
             repo.list_candidates()
-        self.assertNotIn("BEGIN", s.statements)
-        self.assertFalse(any("metric_candidate" in q for q in s.statements))
-
-    def test_interrupt_rolls_back_reraises_and_quarantines(self):
-        s = FakeSession()
-
-        def work(execute, meta):
-            execute("UPDATE something")
-            raise Interrupt()
-
-        with patch.object(db, "session", return_value=s), self.assertRaises(Interrupt):
-            repo._in_txn(work, "test.op", "tester", 1)
-        self.assertIn("ROLLBACK", s.statements)
-        self.assertNotIn("COMMIT", s.statements)
-        self.assertEqual(s.op_log(), [])  # uncertain → app log only
-        self.assertTrue(db.is_dirty())
-
-    def test_failed_commit_is_uncertain(self):
-        s = FakeSession(fail={"COMMIT": [RuntimeError("lost ack")]})
-        with self.assertRaises(RuntimeError):
-            self.run_update(s)
-        self.assertEqual(s.op_log(), [])
-        self.assertTrue(db.is_dirty())
-
-    def test_interrupted_bookkeeping_keeps_quarantine_and_the_real_error(self):
-        # Astra 2026-10-23: logging after a failed COMMIT must not bypass quarantine or mask the error.
-        s = FakeSession(fail={"COMMIT": [RuntimeError("lost ack")]})
-        with patch.object(repo.log, "info", side_effect=Interrupt()), \
-                self.assertRaisesRegex(RuntimeError, "lost ack"):
-            self.run_update(s)
-        self.assertTrue(db.is_dirty())
-
-    def test_interrupted_op_log_after_rollback_keeps_the_real_error(self):
-        s = FakeSession(fail={"INTO AI_PLATFORM.WORKBENCH.revision": [RuntimeError("snapshot failed")],
-                              "INTO AI_PLATFORM.WORKBENCH.op_log": [Interrupt()]})
-        with self.assertRaisesRegex(RuntimeError, "snapshot failed"):
-            self.run_update(s)
-
-    def test_stop_request_after_a_successful_save_is_not_swallowed(self):
-        s = FakeSession(fail={"INTO AI_PLATFORM.WORKBENCH.op_log": [Interrupt()]})
-        with self.assertRaises(Interrupt):
-            self.run_update(s)
-        self.assertIn("COMMIT", s.statements)
-        self.assertFalse(db.is_dirty())
-
-    def test_failed_tag_clear_is_retried_not_abandoned(self):
-        s = FakeSession(tag_fail=[""])
-        self.run_update(s)
-        self.assertNotEqual(s.tags[-1], "")  # the clear failed; the op's tag is still set
-        with patch.object(db, "session", return_value=s):
-            repo.list_candidates()
-        self.assertEqual(s.tags[-1], "")  # retried before the next statement
-
-    def test_begin_failure_still_rolls_back(self):
-        s = FakeSession(fail={"BEGIN": [RuntimeError("begin failed")]})
-        with self.assertRaises(RuntimeError):
-            self.run_update(s)
-        self.assertIn("ROLLBACK", s.statements)
-
-    def test_op_log_failure_does_not_change_outcome(self):
-        s = FakeSession(fail={"INTO AI_PLATFORM.WORKBENCH.op_log": [RuntimeError("log down")]})
-        self.assertEqual(self.run_update(s), 2)
-        self.assertIn("COMMIT", s.statements)
-
-    def test_tag_carries_op_id_and_is_cleared_after(self):
-        s = FakeSession()
-        self.run_update(s)
-        self.assertIn('"op": "candidate.edit"', s.tags[0])
-        self.assertIn(s.op_log()[0][0], s.tags[0])  # same op_id in tag and op_log
-        self.assertEqual(s.tags[-1], "")
-        self.assertEqual(s.op_log()[0][4], "committed")
-
-    def test_create_retry_with_same_token_returns_first_row(self):
-        s = FakeSession(rows={"create_token = ?": [[7]]})
-        with patch.object(db, "session", return_value=s):
-            self.assertEqual(repo.insert_candidate({"full_name": "X"}, "tester", "tok"), 7)
-        self.assertFalse(any("INSERT INTO AI_PLATFORM.WORKBENCH.metric_candidate" in q for q in s.statements))
-        self.assertEqual(s.op_log()[0][4], "replayed")
-
-    def test_snapshot_keeps_nulls_and_records_version(self):
-        s = FakeSession(rows={"create_token = ?": []})
-        with patch.object(db, "session", return_value=s):
-            repo.insert_candidate({"full_name": "X"}, "tester", "tok")
-        text, params = next(c for c in s.calls if "INTO AI_PLATFORM.WORKBENCH.revision" in c[0])
-        self.assertIn("OBJECT_CONSTRUCT_KEEP_NULL(*)", text)
-        self.assertIn(repo.SNAPSHOT_VERSION, params)
+        self.assertFalse(any("save_metric" in q or "metric_candidate" in q for q in s.statements))
 
     def test_sidebar_list_is_capped(self):
         s = FakeSession(rows={"FROM AI_PLATFORM.WORKBENCH.metric_candidate": []})
         with patch.object(db, "session", return_value=s):
             repo.list_candidates()
         self.assertIn(f"LIMIT {repo.LIST_LIMIT}", s.statements[-1])
+
+    def test_failed_duplicate_check_is_a_warning_not_a_failure(self):
+        # REL-11: the procedure omits collisions when its lookup failed; the save still committed.
+        row = dict(CANDIDATE_ID=1, REVISION_NO=1, FULL_NAME='a', DESCRIPTION=None, DISAMBIG=None,
+                   DEPARTMENT=None, CATEGORY=None)
+        with patch.object(repo, 'save_metric', return_value={"outcome": "committed", "candidate_id": 1,
+                                                              "candidate_revision": 2}):
+            out = services.save_candidate_edit(row, {'full_name': 'b'}, 'tester')
+        self.assertTrue(out.ok)
+        self.assertEqual(out.revision_no, 2)
+        self.assertEqual(out.warnings, ["Couldn't check for duplicate names right now."])
+
+    def test_duplicate_warnings_exclude_the_record_itself(self):
+        row = dict(CANDIDATE_ID=1, REVISION_NO=1, FULL_NAME='Same', DESCRIPTION=None, DISAMBIG=None,
+                   DEPARTMENT=None, CATEGORY=None)
+        hits = [{"KIND": "candidate", "ID": 1, "FULL_NAME": "b"}, {"KIND": "metric", "ID": 9, "FULL_NAME": "B"}]
+        with patch.object(repo, 'save_metric', return_value={"outcome": "committed", "candidate_id": 1,
+                                                              "candidate_revision": 2, "collisions": hits}) as save:
+            out = services.save_candidate_edit(row, {'full_name': ' B '}, 't')
+        self.assertEqual(save.call_args.args[5], "b")  # normalized here; the procedure checks renames only
+        self.assertEqual(len(out.warnings), 1)
+        self.assertIn("metric #9", out.warnings[0])
+
+    def test_legacy_edit_conflict_reports_theirs(self):
+        row = dict(CANDIDATE_ID=1, REVISION_NO=1, FULL_NAME='a', DESCRIPTION=None, DISAMBIG=None,
+                   DEPARTMENT=None, CATEGORY=None)
+        theirs = dict(row, REVISION_NO=2, DESCRIPTION='gabe was here', UPDATED_BY='gabe', UPDATED_AT=None)
+        with patch.object(repo, 'save_metric', return_value={"outcome": "conflict", "candidate_id": 1}), \
+                patch.object(repo, 'get_candidate', return_value=theirs):
+            out = services.save_candidate_edit(row, {'full_name': 'b'}, 'tester')
+        self.assertFalse(out.ok)
+        self.assertEqual(out.latest, theirs)
+        self.assertIn("Changed: Description", out.message)
 
 
 class LockTests(unittest.TestCase):
@@ -210,22 +157,32 @@ class LockTests(unittest.TestCase):
     def setUp(self):
         fresh_state(self)
 
-    def test_any_read_waits_for_open_transaction(self):
-        in_txn, release, order = threading.Event(), threading.Event(), []
+    def test_any_read_waits_for_a_save_in_progress(self):
+        in_call, release, order = threading.Event(), threading.Event(), []
+        s = FakeSession(rows={"metric_candidate": []})
+        real_sql = s.sql
 
-        def write(execute, meta):
-            in_txn.set()
-            release.wait(2)
-            order.append("write")
+        def sql(text, params=None):
+            result = real_sql(text, params)
+            if text.startswith("CALL"):
+                def slow(**_):
+                    in_call.set()
+                    release.wait(2)
+                    order.append("write")
+                    return [[json.dumps({"outcome": "no_change", "candidate_id": 1})]]
+                result.collect.side_effect = slow
+            return result
+        s.sql = sql
 
-        with patch.object(db, "session", return_value=FakeSession(rows={"metric_candidate": []})):
-            writer = threading.Thread(target=repo._in_txn, args=(write, "test.op", "tester"))
+        with patch.object(db, "session", return_value=s):
+            writer = threading.Thread(target=repo.save_metric,
+                                      args=("op", "tester", {"id": 1, "fields": {}}, []))
             writer.start()
-            self.assertTrue(in_txn.wait(2))
+            self.assertTrue(in_call.wait(2))
             reader = threading.Thread(target=lambda: repo.list_candidates() or order.append("read"))
             reader.start()
             reader.join(0.2)
-            self.assertTrue(reader.is_alive())  # a plain list read is blocked behind the transaction
+            self.assertTrue(reader.is_alive())  # a plain list read is blocked behind the save
             release.set()
             writer.join(2)
             reader.join(2)
@@ -234,7 +191,8 @@ class LockTests(unittest.TestCase):
     def test_database_reached_only_through_db(self):
         root = Path(__file__).resolve().parents[1]
         sources = {p.name: p.read_text() for p in [*root.glob("app/*.py"), root / "streamlit_app.py"]}
-        self.assertEqual({n for n, t in sources.items() if '"BEGIN"' in t}, {"repositories.py"})
+        # Transactions live in the save procedure (sql/004); Python never opens one (DEC-021).
+        self.assertEqual({n for n, t in sources.items() if '"BEGIN"' in t}, set())
         # session() hands out the raw connection; only db.py may call it (via locked_session).
         self.assertEqual({n for n, t in sources.items() if "session()" in t.replace("locked_session()", "")},
                          {"db.py"})
@@ -249,21 +207,23 @@ class EditorTests(unittest.TestCase):
                         UPDATED_AT=datetime(2026, 10, 21))
         self.writes, self.notes = [], []
 
-        def update(cid, expected, fields, actor, note):
+        def update(op_id, actor, cand, calcs, note=None, check_name=None):
+            expected = cand['expected_revision']
             if expected != self.row['REVISION_NO']:
-                raise repo.StaleEdit(cid)
-            self.row.update({k.upper(): v for k, v in fields.items()})
+                return {"outcome": "conflict", "candidate_id": cand['id']}
+            self.row.update({k.upper(): v for k, v in cand['fields'].items()})
             self.row['REVISION_NO'] += 1
             self.writes.append(expected)
             self.notes.append(note)
-            return self.row['REVISION_NO']
+            return {"outcome": "committed", "candidate_id": cand['id'],
+                    "candidate_revision": self.row['REVISION_NO'], "collisions": []}
         self.history = Mock(return_value=[])
         patches = [patch('app.db.viewer', return_value='tester'),
+                   patch('st_keyup.st_keyup', keyup_as_text_input),
                    patch.object(repo, 'list_candidates', side_effect=lambda search: [copy.deepcopy(self.row)]),
                    patch.object(repo, 'get_candidate', side_effect=lambda cid: copy.deepcopy(self.row)),
                    patch.object(repo, 'history', self.history),
-                   patch.object(repo, 'find_by_exact_name', return_value=[]),
-                   patch.object(repo, 'update_candidate', side_effect=update)]
+                   patch.object(repo, 'save_metric', side_effect=update)]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -281,21 +241,46 @@ class EditorTests(unittest.TestCase):
     def note_value(self):
         return next(t for t in self.app.text_input if t.label.startswith('Change note')).value
 
-    def test_stale_draft_survives_and_reload_discards_it(self):
-        self.row.update(DESCRIPTION='Other editor', REVISION_NO=2)
+    def button(self, prefix):
+        return next((b for b in self.app.button if b.label.startswith(prefix)), None)
+
+    def test_no_discard_action_without_a_conflict(self):
+        self.assertIsNone(self.button('Discard mine'))
+        self.save('Fine')
+        self.assertIsNone(self.button('Discard mine'))
+
+    def conflict(self):
+        self.row.update(DESCRIPTION='Other editor', REVISION_NO=2, UPDATED_BY='gabe')
         self.save('My unsaved draft', note='why I changed it')
-        self.assertTrue(self.app.error)
+        self.assertIn('gabe', self.app.error[0].value)
+        self.assertIn('Changed: Description', self.app.error[0].value)
+        self.assertTrue(next(b for b in self.app.button if b.label == 'Save').disabled)
+
+    def test_stale_draft_survives_and_discard_loads_theirs(self):
+        self.conflict()
         self.assertEqual(self.writes, [])
         self.assertEqual(self.row['DESCRIPTION'], 'Other editor')
         self.assertEqual(self.app.text_area[0].value, 'My unsaved draft')
         self.assertEqual(self.note_value(), 'why I changed it')  # REL-12: note kept with the draft
         self.app.run()
         self.assertEqual(self.app.session_state['candidate-editor:1']['baseline']['REVISION_NO'], 1)
-        next(b for b in self.app.button if b.label.startswith('Reload latest')).click().run()
+        self.button('Discard mine').click().run()
         self.assertEqual(self.app.text_area[0].value, 'Other editor')
+        self.assertIsNone(self.button('Discard mine'))
         self.save('Reconciled')
         self.assertEqual(self.writes, [2])
         self.assertEqual(self.app.session_state['candidate-editor:1']['baseline']['REVISION_NO'], 3)
+
+    def test_keep_my_edits_merges_onto_theirs(self):
+        self.row.update(FULL_NAME='Renamed by gabe', REVISION_NO=2, UPDATED_BY='gabe')
+        self.save('My description')
+        self.button('Keep my edits').click().run()
+        self.assertEqual(self.app.text_area[0].value, 'My description')  # mine kept
+        self.assertEqual(next(t for t in self.app.text_input if t.label == 'Name *').value,
+                         'Renamed by gabe')  # their untouched-by-me field kept
+        self.save('My description')
+        self.assertEqual(self.writes, [2])
+        self.assertEqual(self.row['FULL_NAME'], 'Renamed by gabe')
 
     def test_success_refresh_and_noop(self):
         self.save('Saved', note='first')
@@ -307,24 +292,25 @@ class EditorTests(unittest.TestCase):
         self.assertEqual(self.writes, [1])
 
     def test_write_race_rejected_by_repository(self):
-        with patch.object(repo, 'update_candidate', side_effect=repo.StaleEdit(1)):
+        with patch.object(repo, 'save_metric', return_value={'outcome': 'conflict', 'candidate_id': 1}):
             self.save('Draft')
         self.assertTrue(self.app.error)
         self.assertEqual(self.app.text_area[0].value, 'Draft')
 
     def test_database_failure_preserves_draft(self):
-        with patch.object(repo, 'update_candidate', side_effect=RuntimeError('database failure')):
+        with patch.object(repo, 'save_metric', side_effect=RuntimeError('database failure')):
             self.save('Retained')
         self.assertTrue(self.app.error)
         self.assertEqual(self.app.text_area[0].value, 'Retained')
 
     def test_quarantined_connection_says_not_saved(self):
-        with patch.object(repo, 'update_candidate', side_effect=db.ConnectionQuarantined('busy')):
+        with patch.object(repo, 'save_metric', side_effect=db.ConnectionQuarantined('busy')):
             self.save('Retained')
         self.assertIn('Not saved', self.app.error[0].value)
         self.assertEqual(self.app.text_area[0].value, 'Retained')
 
     def test_quarantine_on_first_read_shows_retry_not_a_crash(self):
+        self.app.session_state['recent'] = (0, [])  # expired: the next run reads the list
         with patch.object(repo, 'list_candidates', side_effect=db.ConnectionQuarantined('busy')):
             self.app.run()
         self.assertFalse(self.app.exception)
@@ -350,18 +336,13 @@ class EditorTests(unittest.TestCase):
         self.history.assert_called_with('metric_candidate', 1)
 
 
-class AdvisoryTests(unittest.TestCase):
-    def test_duplicate_check_failure_does_not_fail_a_committed_save(self):
-        # REL-11: the save committed; a failing advisory lookup must not make it look failed.
-        row = dict(REVISION_NO=1, FULL_NAME='a', DESCRIPTION=None, DISAMBIG=None,
-                   DEPARTMENT=None, CATEGORY=None)
-        with patch.object(repo, 'get_candidate', return_value=row), \
-                patch.object(repo, 'update_candidate', return_value=2), \
-                patch.object(repo, 'find_by_exact_name', side_effect=RuntimeError('lookup down')):
-            out = services.save_candidate_edit(1, 1, {'full_name': 'b'}, 'tester')
-        self.assertTrue(out.ok)
-        self.assertEqual(out.revision_no, 2)
-        self.assertTrue(out.warnings)
+class DepartmentTests(unittest.TestCase):
+    def test_old_values_map_to_current_names(self):
+        self.assertEqual(services.department('finance'), 'Finance')
+        self.assertEqual(services.department('bi_meta'), 'Analytics')
+        self.assertEqual(services.department('misc'), 'Other')
+        self.assertEqual(services.department('Finance'), 'Finance')
+        self.assertIsNone(services.department(''))
 
 
 class CreateTests(unittest.TestCase):
@@ -371,9 +352,10 @@ class CreateTests(unittest.TestCase):
         fresh_state(self)
         self.rows, self.inserts, self.tokens = [], [], {}
 
-        def insert(fields, actor, token):
+        def insert(op_id, actor, cand, calcs, note=None, check_name=None):
+            fields, token = cand['fields'], cand['create_token']
             if token in self.tokens:  # same contract as the repository: idempotent per token
-                return self.tokens[token]
+                return {"outcome": "replayed", "candidate_id": self.tokens[token], "collisions": []}
             cid = len(self.rows) + 1
             self.rows.append(dict(CANDIDATE_ID=cid, FULL_NAME=fields['full_name'],
                                   DESCRIPTION=fields.get('description'), DISAMBIG=None,
@@ -382,17 +364,17 @@ class CreateTests(unittest.TestCase):
                                   UPDATED_AT=datetime(2026, 10, 22)))
             self.inserts.append(cid)
             self.tokens[token] = cid
-            return cid
+            return {"outcome": "committed", "candidate_id": cid, "collisions": []}
         self.insert = Mock(side_effect=insert)
         by_id = lambda cid: next((copy.deepcopy(r) for r in self.rows if r['CANDIDATE_ID'] == cid), None)
         patches = [patch('app.db.viewer', return_value='tester'),
+                   patch('st_keyup.st_keyup', keyup_as_text_input),
                    patch.object(repo, 'list_candidates', side_effect=lambda search: [
                        copy.deepcopy(r) for r in self.rows
                        if search.lower() in r['FULL_NAME'].lower()]),
                    patch.object(repo, 'get_candidate', side_effect=by_id),
                    patch.object(repo, 'history', return_value=[]),
-                   patch.object(repo, 'find_by_exact_name', return_value=[]),
-                   patch.object(repo, 'insert_candidate', self.insert)]
+                   patch.object(repo, 'save_metric', self.insert)]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -411,7 +393,8 @@ class CreateTests(unittest.TestCase):
         self.assertEqual(self.inserts, [1])
         self.assertEqual(self.app.sidebar.radio[0].value, 1)  # listed and selected
         self.assertEqual(self.app.header[0].value, 'Fresh metric')
-        self.assertTrue(self.app.success)  # "Saved" feedback survives the rerun
+        self.assertIn('Saved', self.app.toast[0].value)  # feedback survives the rerun
+        self.assertIn('✓ Saved · rev 1', self.app.caption[0].value)
         self.assertFalse([w for w in self.app.text_input if (w.key or '').startswith('new-')])  # create form gone
         self.app.run()  # a later rerun must not create anything again
         self.assertEqual(self.inserts, [1])
@@ -431,9 +414,9 @@ class CreateTests(unittest.TestCase):
     def test_retry_after_unconfirmed_create_reuses_token(self):
         real, attempts = self.insert.side_effect, []
 
-        def lost_ack(fields, actor, token):  # the row lands; only the acknowledgement is lost
-            cid = real(fields, actor, token)
-            attempts.append(token)
+        def lost_ack(*args, **kw):  # the row lands; only the acknowledgement is lost
+            cid = real(*args, **kw)
+            attempts.append(args[2]['create_token'])
             if len(attempts) == 1:
                 raise RuntimeError('connection dropped')
             return cid
@@ -450,10 +433,10 @@ class CreateTests(unittest.TestCase):
     def lose_first_ack(self, landed):
         real = self.insert.side_effect
 
-        def flaky(fields, actor, token):
+        def flaky(*args, **kw):
             self.insert.side_effect = real
             if landed:
-                real(fields, actor, token)
+                real(*args, **kw)
             raise RuntimeError('connection dropped')
         self.insert.side_effect = flaky
 
@@ -467,7 +450,7 @@ class CreateTests(unittest.TestCase):
             self.click_save()
         self.assertEqual(self.inserts, [1])
         self.assertEqual(self.app.sidebar.radio[0].value, 1)
-        self.assertIn('did go through as #1', self.app.success[0].value)
+        self.assertIn('did go through as #1', self.app.warning[0].value)
 
     def test_changed_entries_after_a_create_that_did_not_land_save_normally(self):
         self.lose_first_ack(landed=False)

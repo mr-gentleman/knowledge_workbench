@@ -1,6 +1,7 @@
 """FastAPI layer for the SPCS spike: serves the React build and exposes candidate
 read/edit over app/services.py and app/repositories.py — no business rules here."""
 import os
+import uuid
 from dataclasses import asdict
 from pathlib import Path
 
@@ -27,14 +28,16 @@ class CandidateFields(BaseModel):
 
 
 class CandidateDraft(BaseModel):
-    id: int
-    expected_revision: int
+    id: int | None = None
+    expected_revision: int | None = None
+    create_token: str | None = None
     fields: CandidateFields
 
 
 class MetricSave(BaseModel):
-    """Request shape of docs/plans/metric-save-contract.md (DEC-020). The spike persists only
-    the definition; calcs are accepted in shape but refused until services.save_metric exists."""
+    """Request shape of docs/plans/metric-save-contract.md (DEC-020). Send the same op_id
+    when retrying a draft so a save that landed reports replayed, not a conflict."""
+    op_id: str | None = None
     candidate: CandidateDraft
     calcs: list[dict] = []
     change_note: str | None = None
@@ -67,17 +70,9 @@ def get_candidate(candidate_id: int):
 @api.post("/api/metrics/save")
 def save_metric(body: MetricSave, request: Request):
     actor = spcs.viewer(request)
-    if body.calcs:
-        raise HTTPException(501, "Saving implementations needs services.save_metric (one-call-save lane).")
-    c = body.candidate
-    out = services.save_candidate_edit(c.id, c.expected_revision, c.fields.model_dump(), actor, body.change_note)
-    # Spike-only mapping of today's Outcome onto the contract's statuses; save_metric returns them directly.
-    if out.ok:
-        status = "no_change" if out.message == "No changes to save." else "saved"
-    else:
-        status = "conflict" if "newer version" in out.message else "invalid"
-    return {"status": status, "message": out.message, "candidate_id": out.record_id,
-            "candidate_revision": out.revision_no, "calc_revisions": {}, "warnings": out.warnings}
+    out = services.save_metric(actor, body.op_id or str(uuid.uuid4()), body.candidate.model_dump(),
+                               body.calcs, body.change_note)
+    return asdict(out)
 
 
 dist = Path(os.getenv("KW_WEB_DIST", Path(__file__).resolve().parents[1] / "web" / "dist"))

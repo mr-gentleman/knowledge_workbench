@@ -195,3 +195,86 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   behavior inside SiS, and whether QUERY_TAG is allowed under owner's rights (tagging turns itself
   off if not).
 - Related: REL-08, REL-09, PLAT-04; app/db.py, app/repositories.py.
+
+## DEC-019 — A reserved calc_id is a PI create's retry key; PI label, default and run-status rules
+
+- Date: 2026-10-23. Origin: #claude (UX-02 backend, branch claude/sql-on-page). Status: proposed.
+  Numbered after DEC-018 on claude/product-focus; renumber on merge if taken.
+- Scope: how a PI is created safely and which per-PI rules hold. **How PIs are saved is DEC-020**
+  (one Save, all-or-nothing across the candidate and its PIs); this entry no longer says PIs save
+  independently.
+- Context: `metric_calc` has no `create_token` column, yet a PI create retried after a lost
+  acknowledgement must not insert twice (same risk as REL-10).
+- Decision:
+  - Retry key: before a new PI's first save the caller reserves an id from `seq_calc_id`
+    (`repo.reserve_calc_id`) and keeps it with the draft. `repo.insert_calc` skips the INSERT when
+    that id already exists; a replay whose content differs is reported so the caller keeps the
+    newer edits as unsaved. No migration.
+  - Default: the first active PI of a candidate is `is_default`.
+  - Label: with two or more active PIs, each needs a "how it differs" label (`disambig`).
+  - Run status is bound to the revision it checked (`services.validation_state`):
+    `Not run` / `✓ Runs · rev N` / `✗ SQL failed · rev N`; never "validated".
+  - Removing a PI retires it (`repo.retire_calc`: status 'retired', revision + 1, snapshot); no
+    migration.
+- Alternatives: a `create_token` column (needs a migration before deploy).
+- Consequences: abandoned creates leave sequence gaps (fine). The per-record repository functions
+  (`insert_calc`, `update_calc`, `retire_calc`) and the per-PI rules in `app/services.py` are
+  building blocks for DEC-020's single save (PLAT-09, branch claude/save-proc); the per-PI
+  `save_new_calc` / `save_calc_edit` services predate DEC-020 and should be folded into or replaced
+  by `save_metric` there.
+- Related: UX-02, REL-10, DEC-018, DEC-020, FE-02; app/services.py, app/repositories.py, tests/test_pi.py.
+
+## DEC-021 — Every save is one CALL to an owner's-rights procedure (implements DEC-020)
+
+- Date: 2026-10-23. Origin: #claude, requested by #chris (saves feel sluggish; moving writes into
+  procedures was already agreed as low-regret and keeps the UI a thin client for the React cutover,
+  DEC-018). Status: proposed on branch claude/save-proc; procedure not created, not deployed.
+  Implements DEC-020's single all-or-nothing save. Supersedes DEC-002 and DEC-007's Python-side
+  transaction runner (`_in_txn`) and session QUERY_TAG.
+- Evidence (ACCOUNT_USAGE.QUERY_HISTORY, session 5296369439846791, op_log 958dc915… edit and
+  1a41ec4a… create, 2026-10-23; server elapsed ms, compile + execute):
+  - Edit: tag set 113, BEGIN 173, UPDATE 370, snapshot INSERT 539, COMMIT 666, op_log INSERT 406,
+    tag unset 127 → 2,394 ms of writes; then duplicate check 159, sidebar list 132, get 104.
+    Lock wait 1 ms.
+  - Create: duplicate check 158, tag 62, BEGIN 82, token SELECT 76, NEXTVAL 145, INSERT 357,
+    snapshot INSERT 551, COMMIT 501, op_log INSERT 401, tag unset 112 → 2,445 ms.
+  - Gaps between statements are 10–20 ms: client round trips are not the cost. Each statement's
+    compile (50–230 ms) and execute is, and DML + COMMIT on standard tables is 0.35–0.65 s apiece.
+- Decision: `AI_PLATFORM.WORKBENCH.save_metric(request)` (sql/004, Snowflake Scripting, EXECUTE AS
+  OWNER, owned by WORKBENCH_APP) is the only write path. One JSON request carries the candidate and
+  the PIs the draft touched; set-based SQL (FLATTEN) handles any number of PIs in fixed statements.
+  - **Services validate first** (name, SQL present, labels once 2+ PIs are active, which new PI is
+    default) and return `invalid` without calling the database.
+  - **The procedure** checks replay markers (op_id already committed, create_token used, reserved
+    calc_id present), compares each record with the stored row at its expected revision, then:
+    any record moved → `conflict`, nothing written; nothing changed → `no_change`; otherwise one
+    transaction writes only changed records (conditional UPDATE / INSERT / retire), one snapshot
+    each (`OBJECT_CONSTRUCT_KEEP_NULL` + schema version), and the `committed` op_log row. A race
+    between check and write raises inside the procedure and also ends as `conflict`.
+  - **On a conflict, services re-read** the touched records and diff them against their snapshot at
+    the expected revision, so the message names each record, who changed it and which fields.
+  - Retry = same `op_id` (plus the token / reserved ids): a save that landed is reported as saved,
+    with a warning if the draft changed since. Actor is the viewer passed in, never CURRENT_USER().
+  - QUERY_TAG is a statement parameter on the CALL, not ALTER SESSION. Any CALL failure marks the
+    connection dirty; DEC-008's heal runs before the next operation.
+- What changes for existing behaviour: the `committed` op_log row is written inside the transaction
+  (a broken op_log table now fails saves); op_log.op is `metric.save`; last_query_id is the last
+  statement before the log row; duration_ms is time inside the procedure before COMMIT. The
+  Streamlit identity form (frozen, DEC-018) saves through the same procedure with no PIs.
+- Expected speed (estimate): a definition-only edit drops ALTER SESSION ×2 and a separate op_log
+  commit but gains the change-detection read: roughly 2.4 s → 1.8–2.2 s. A page with N touched PIs
+  costs about the same as one, not N saves. Floor: UPDATE + snapshot + COMMIT ≈ 1.5 s on standard
+  tables; hybrid tables are the larger lever. Measure after deploy (docs/save-proc-handoff.md).
+- Not built here: contract step 6 (run-check changed SQL after commit). `save_metric` returns
+  `checks_due`; the check needs its own connection and the read-only execution path (DEC-004),
+  a separate piece. The default PI is not reassigned when the default is retired and others remain.
+- Alternatives: per-record saves called in sequence (DEC-020 rejected it: half-saved pages); keep
+  the Python transaction and only drop the tag statements (~0.25 s, leaves write logic in the
+  Streamlit layer); a stored procedure per record type (several CALLs, no atomicity across them).
+- Consequences: removed `_in_txn`, `_snapshot`, `set_tag`, the per-record write functions
+  (`insert_/update_candidate`, `insert_/update_/retire_calc`, `save_new_calc`, `save_calc_edit`)
+  and `find_by_exact_name`. CREATE OR REPLACE resets ownership: re-run 004's GRANT after any change.
+  Not verified live: the procedure compiles; binding ARRAY variables into FLATTEN; statement-level
+  QUERY_TAG on a CALL; LAST_QUERY_ID inside a procedure; actual latency.
+- Related: DEC-018, DEC-019, DEC-020, PLAT-04, PLAT-09, REL-08, REL-10, REL-11, HIST-06;
+  sql/004_save_metric_proc.sql, app/repositories.py, app/services.py, tests/test_pi.py.
