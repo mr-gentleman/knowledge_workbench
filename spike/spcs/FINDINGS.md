@@ -14,6 +14,16 @@
 | Idle cost acceptable | **Pass on the shared pool (≈ today's cost); ~80 cr/mo worst case on a dedicated XS pool** | measured account metering |
 | Feels fast | **Pass locally** (API round trip 8–53 ms against a fake repo). Real latency = Snowflake query time, same as SiS minus Streamlit reruns | local preview |
 
+## Deploy log (2026-10-23, driven by Claude at Chris's request)
+
+- Step 1 (grants, `KW_IMAGES` repo, `KW_SPIKE_POOL`) done by Chris/CoCo. Verified with `SHOW GRANTS TO ROLE WORKBENCH_APP`.
+- **System pool is refused:** `SYSTEM_COMPUTE_POOL_CPU can only support services of type [NOTEBOOK, MODEL_SERVING, STREAMLIT, ML_JOB, APPLICATION_SERVICE, REMOTE_BUILD]`. So the idle cost is the dedicated XS pool (≈ 0.11 cr/hr), plus service auto-suspend.
+- **Registry login gotcha:** the password is the *whole* `snow spcs image-registry token --format JSON` blob, not its `token` field. With just the field, login fails with "invalid username/password". `deploy.sh` is fixed.
+- Service `AI_PLATFORM.WORKBENCH.KW_SPIKE` on `KW_SPIKE_POOL`, image `kw-spike:e61742c`: **build+push 22 s (warm), rollout 48 s to READY, including the pool resume.**
+- Access: `WORKBENCH_USER` was created by SECURITYADMIN, granted to `CLENZINI` and to `SYSADMIN`, and holds `KW_SPIKE!KW_USER` (granted by WORKBENCH_APP).
+- Endpoint URL was still "provisioning" right after READY. Get it with `SHOW ENDPOINTS IN SERVICE AI_PLATFORM.WORKBENCH.KW_SPIKE`.
+- **Next (fresh session):** live checks 1–5 in COCO_HANDOFF.md, then fill in the FE-01 table below. Also run `ALTER SERVICE AI_PLATFORM.WORKBENCH.KW_SPIKE SET AUTO_SUSPEND_SECS = 1800` (handoff.sql §6).
+
 ## FE-01 gate (DEC-018): all three must pass
 
 DEC-018 (2026-10-23, on `claude/product-focus`) makes React on SPCS the V1 front end, gated on this spike. **If attribution fails, React on SPCS is off and DEC-018 is reopened. It does not get downgraded.**
