@@ -1,20 +1,12 @@
-"""Physical implementations (SQL) on the candidate page: add, edit, conflict, retry."""
-import copy
+"""Physical implementations (SQL): repository and service rules for add, edit, conflict, retry."""
 import unittest
 from datetime import datetime
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-from streamlit.testing.v1 import AppTest
-from test_concurrency import FakeSession, fresh_state, keyup_as_text_input
+from test_concurrency import FakeSession, fresh_state
 
 from app import db, services
 from app import repositories as repo
-
-
-def code_editor_as_text_area(code, key=None, **_):
-    """AppTest can't drive custom components; the SQL editor behaves like a text area."""
-    import streamlit as st
-    return {"id": "edit", "text": st.text_area("SQL editor", code, key=key)}
 
 
 def calc_row(calc_id, sql, disambig=None, revision=1, is_default=False, by="tester"):
@@ -84,184 +76,43 @@ class CalcServiceTests(unittest.TestCase):
         self.assertTrue(same.ok and not same.warnings)
         self.assertTrue(newer.ok and newer.warnings)
 
+    def test_edit_saves_against_the_opened_revision(self):
+        with patch.object(repo, "update_calc", return_value=2) as update:
+            out = services.save_calc_edit(calc_row(9, "SELECT 1"), {"sql_text": "SELECT 2"}, 0, "tester")
+        self.assertTrue(out.ok)
+        self.assertEqual(out.revision_no, 2)
+        self.assertEqual(update.call_args.args[:2], (9, 1))
+
+    def test_unchanged_edit_writes_nothing(self):
+        with patch.object(repo, "update_calc") as update:
+            out = services.save_calc_edit(calc_row(9, "SELECT 1"), {"sql_text": "SELECT 1 "}, 0, "tester")
+        self.assertEqual(out.message, "No changes to save.")
+        update.assert_not_called()
+
+    def test_conflict_returns_theirs_and_what_changed(self):
+        theirs = calc_row(9, "SELECT gabe", revision=2, by="gabe")
+        with patch.object(repo, "update_calc", side_effect=repo.StaleEdit(9)), \
+                patch.object(repo, "get_calc", return_value=theirs):
+            out = services.save_calc_edit(calc_row(9, "SELECT 1"), {"sql_text": "SELECT mine"}, 0, "tester")
+        self.assertFalse(out.ok)
+        self.assertEqual(out.latest, theirs)
+        self.assertIn("gabe", out.message)
+        self.assertIn("Changed: SQL", out.message)
+
+    def test_keep_mine_keeps_their_untouched_fields(self):
+        base = calc_row(9, "SELECT 1")
+        theirs = calc_row(9, "SELECT 1", revision=2)
+        theirs["SOURCE_TABLE"] = "AC.FIN.ARR"
+        mine = {"sql_text": "SELECT mine", "source_table": None, "disambig": None}
+        self.assertEqual(services.keep_mine(mine, base, theirs),
+                         {"sql_text": "SELECT mine", "source_table": "AC.FIN.ARR", "disambig": None})
+
     def test_validation_counts_only_for_the_checked_revision(self):
         row = calc_row(9, "SELECT 1", revision=2)
         row.update(VALIDATION_STATUS="passed", VALIDATED_REVISION_NO=2)
         self.assertEqual(services.validation_state(row), "✓ Runs · rev 2")
         row["REVISION_NO"] = 3
         self.assertEqual(services.validation_state(row), "Not run")
-
-
-class PiPageTests(unittest.TestCase):
-    """The SQL section against a fake repository with the real contract."""
-
-    def setUp(self):
-        fresh_state(self)
-        self.cand = dict(CANDIDATE_ID=1, FULL_NAME='Net New ARR', DESCRIPTION='d', DISAMBIG='',
-                         CATEGORY='', DEPARTMENT=None, REVISION_NO=1, STATUS='open',
-                         ORIGINAL_AUTHOR='tester', UPDATED_BY='tester', UPDATED_AT=datetime(2026, 10, 23))
-        self.calcs, self.inserts, self.updates, self.next_id = {}, [], [], [100]
-
-        def reserve():
-            self.next_id[0] += 1
-            return self.next_id[0]
-
-        def insert(calc_id, cid, fields, is_default, actor):
-            if calc_id in self.calcs:
-                return False
-            self.calcs[calc_id] = calc_row(calc_id, fields["sql_text"], fields.get("disambig"),
-                                           is_default=is_default)
-            self.inserts.append(calc_id)
-            return True
-
-        def update(calc_id, expected, fields, actor):
-            row = self.calcs[calc_id]
-            if expected != row['REVISION_NO']:
-                raise repo.StaleEdit(calc_id)
-            row.update({k.upper(): v for k, v in fields.items()}, REVISION_NO=expected + 1)
-            self.updates.append((calc_id, expected))
-            return expected + 1
-
-        self.insert = Mock(side_effect=insert)
-        patches = [patch('app.db.viewer', return_value='tester'),
-                   patch('st_keyup.st_keyup', keyup_as_text_input),
-                   patch('code_editor.code_editor', code_editor_as_text_area),
-                   patch.object(repo, 'list_candidates', side_effect=lambda search: [copy.deepcopy(self.cand)]),
-                   patch.object(repo, 'get_candidate', side_effect=lambda cid: copy.deepcopy(self.cand)),
-                   patch.object(repo, 'find_by_exact_name', return_value=[]),
-                   patch.object(repo, 'list_calcs_for_candidate',
-                                side_effect=lambda cid: [copy.deepcopy(r) for r in self.calcs.values()]),
-                   patch.object(repo, 'get_calc', side_effect=lambda i: copy.deepcopy(self.calcs.get(i))),
-                   patch.object(repo, 'reserve_calc_id', side_effect=reserve),
-                   patch.object(repo, 'insert_calc', self.insert),
-                   patch.object(repo, 'update_calc', side_effect=update)]
-        for p in patches:
-            p.start()
-            self.addCleanup(p.stop)
-
-    def open_page(self):
-        self.app = AppTest.from_file('../streamlit_app.py', default_timeout=30).run()
-        self.app.sidebar.radio[0].set_value(1).run()
-        self.assertFalse(self.app.exception)
-
-    def button(self, label):
-        return next((b for b in self.app.button if b.label == label), None)
-
-    def click(self, label):
-        self.button(label).click().run()
-        self.assertFalse(self.app.exception)
-
-    def editors(self):
-        return [t for t in self.app.text_area if t.label == 'SQL editor']
-
-    def type_sql(self, sql, i=0):
-        self.editors()[i].set_value(sql)
-
-    def test_add_first_sql_saves_once_as_default(self):
-        self.open_page()
-        self.assertEqual(self.editors(), [])  # empty state: just the button
-        self.click('+ Add SQL')
-        self.assertEqual(len(self.editors()), 1)
-        self.assertFalse([t for t in self.app.text_input if t.label.startswith('How it differs')])
-        self.type_sql('SELECT SUM(arr) FROM t')
-        self.click('Save SQL')
-        self.assertEqual(self.inserts, [101])
-        self.assertTrue(self.calcs[101]['IS_DEFAULT'])
-        self.assertIn('SQL saved', self.app.toast[0].value)
-        self.assertEqual(self.editors()[0].value, 'SELECT SUM(arr) FROM t')  # still open, now saved
-        self.assertIsNone(self.button('Cancel'))
-        self.click('Save SQL')  # unchanged → no second write of any kind
-        self.assertEqual((self.inserts, self.updates), ([101], []))
-
-    def test_edit_saves_against_the_opened_revision(self):
-        self.calcs[5] = calc_row(5, 'SELECT 1', is_default=True)
-        self.open_page()
-        self.type_sql('SELECT 2')
-        self.click('Save SQL')
-        self.assertEqual(self.updates, [(5, 1)])
-        self.type_sql('SELECT 3')
-        self.click('Save SQL')
-        self.assertEqual(self.updates, [(5, 1), (5, 2)])  # baseline refreshed after the save
-
-    def test_conflict_keeps_my_sql_then_discard_loads_theirs(self):
-        self.calcs[5] = calc_row(5, 'SELECT 1')
-        self.open_page()
-        self.calcs[5].update(SQL_TEXT='SELECT gabe', REVISION_NO=2, UPDATED_BY='gabe')
-        self.type_sql('SELECT mine')
-        self.click('Save SQL')
-        self.assertEqual(self.updates, [])
-        self.assertIn('gabe', self.app.error[0].value)
-        self.assertIn('Changed: SQL', self.app.error[0].value)
-        self.assertTrue(self.button('Save SQL').disabled)
-        self.assertEqual(self.editors()[0].value, 'SELECT mine')
-        self.click('Discard mine, load theirs')
-        self.assertEqual(self.editors()[0].value, 'SELECT gabe')
-        self.assertFalse(self.button('Save SQL').disabled)
-
-    def test_conflict_keep_mine_saves_on_the_latest_revision(self):
-        self.calcs[5] = calc_row(5, 'SELECT 1')
-        self.open_page()
-        self.calcs[5].update(SOURCE_TABLE='AC.FIN.ARR', REVISION_NO=2, UPDATED_BY='gabe')
-        self.type_sql('SELECT mine')
-        self.click('Save SQL')
-        self.click('Keep my edits on the latest version')
-        self.assertEqual(self.editors()[0].value, 'SELECT mine')
-        self.assertEqual(next(t for t in self.app.text_input if t.label.startswith('Source table')).value,
-                         'AC.FIN.ARR')  # their field, untouched by me, kept
-        self.click('Save SQL')
-        self.assertEqual(self.updates, [(5, 2)])
-        self.assertEqual(self.calcs[5]['SOURCE_TABLE'], 'AC.FIN.ARR')
-
-    def test_second_pi_needs_a_label_and_one_card_is_open(self):
-        self.calcs[5] = calc_row(5, 'SELECT 1\nFROM a\nWHERE x\nAND y', is_default=True)
-        self.open_page()
-        self.click('+ Add another implementation')
-        self.assertEqual(len(self.editors()), 1)  # the new card is open, the saved one collapsed
-        self.assertIn('…', self.app.code[0].value)  # collapsed preview: first 3 lines
-        self.type_sql('SELECT 2')
-        self.click('Save SQL')
-        self.assertEqual(self.inserts, [])
-        self.assertIn('differs', self.app.error[0].value)
-        self.assertEqual(self.editors()[0].value, 'SELECT 2')  # kept
-        next(t for t in self.app.text_input if t.label.startswith('How it differs')).set_value('monthly')
-        self.click('Save SQL')
-        self.assertEqual(self.inserts, [101])
-        self.assertFalse(self.calcs[101]['IS_DEFAULT'])
-
-    def test_collapsed_card_keeps_unsaved_sql(self):
-        self.calcs[5] = calc_row(5, 'SELECT 1', 'monthly')
-        self.calcs[6] = calc_row(6, 'SELECT 2', 'by cohort')
-        self.open_page()
-        self.assertEqual(self.editors(), [])  # two cards: both start collapsed
-        self.app.button(key='pi-toggle:1:5').click().run()
-        self.type_sql('SELECT unsaved')
-        self.app.button(key='pi-toggle:1:6').click().run()  # open the other one
-        self.assertEqual(self.editors()[0].value, 'SELECT 2')
-        self.assertTrue(any('Unsaved changes' in m.value for m in self.app.markdown))  # on card 5's header
-        self.app.button(key='pi-toggle:1:5').click().run()
-        self.assertEqual(self.editors()[0].value, 'SELECT unsaved')
-
-    def test_retry_after_unconfirmed_create_reuses_the_id(self):
-        real = self.insert.side_effect
-
-        def lost_ack(*args):
-            self.insert.side_effect = real
-            real(*args)  # the row lands; only the acknowledgement is lost
-            raise RuntimeError('connection dropped')
-        self.insert.side_effect = lost_ack
-        self.open_page()
-        self.click('+ Add SQL')
-        self.type_sql('SELECT 1')
-        self.click('Save SQL')
-        self.assertIn('Save again is safe', self.app.error[0].value)
-        self.assertEqual(self.editors()[0].value, 'SELECT 1')
-        self.type_sql('SELECT 1 -- tweaked')
-        self.click('Save SQL')
-        self.assertEqual(self.inserts, [101])  # one row, not two
-        self.assertIn('did go through', self.app.warning[0].value)
-        self.assertEqual(self.editors()[0].value, 'SELECT 1 -- tweaked')  # newer edit kept as a draft
-        self.click('Save SQL')
-        self.assertEqual(self.updates, [(101, 1)])
 
 
 if __name__ == '__main__':

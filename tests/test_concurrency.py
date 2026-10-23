@@ -270,8 +270,7 @@ class EditorTests(unittest.TestCase):
                    patch.object(repo, 'get_candidate', side_effect=lambda cid: copy.deepcopy(self.row)),
                    patch.object(repo, 'history', self.history),
                    patch.object(repo, 'find_by_exact_name', return_value=[]),
-                   patch.object(repo, 'update_candidate', side_effect=update),
-                   patch.object(repo, 'list_calcs_for_candidate', return_value=[])]
+                   patch.object(repo, 'update_candidate', side_effect=update)]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -435,8 +434,7 @@ class CreateTests(unittest.TestCase):
                    patch.object(repo, 'get_candidate', side_effect=by_id),
                    patch.object(repo, 'history', return_value=[]),
                    patch.object(repo, 'find_by_exact_name', return_value=[]),
-                   patch.object(repo, 'insert_candidate', self.insert),
-                   patch.object(repo, 'list_calcs_for_candidate', return_value=[])]
+                   patch.object(repo, 'insert_candidate', self.insert)]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)

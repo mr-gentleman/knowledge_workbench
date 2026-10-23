@@ -1,4 +1,4 @@
-"""Knowledge Workbench — slice 1: metric candidates (browse · create · edit · SQL · history)."""
+"""Knowledge Workbench — slice 1: metric candidates (browse · create · edit · history)."""
 import json
 import logging
 import time
@@ -7,8 +7,8 @@ import uuid
 import streamlit as st
 from st_keyup import st_keyup
 
-from app import pi_section, services
 from app import repositories as repo
+from app import services
 from app.db import ConnectionQuarantined, viewer
 
 log = logging.getLogger(__name__)
@@ -259,7 +259,6 @@ else:
                 for k in ("draft", "draft_note", "conflict"):
                     editor.pop(k, None)
                 st.rerun()
-        pi_section.render(selected, arrived, guarded, _flash)
     with tab_hist:
         # Tabs all render on every rerun, so history (full JSON snapshots) loads only on request (PLAT-05).
         if st.toggle("Show history", key=f"hist:{selected}"):

@@ -196,20 +196,24 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   off if not).
 - Related: REL-08, REL-09, PLAT-04; app/db.py, app/repositories.py.
 
-## DEC-009 — PIs save per card; a reserved calc_id is the create's retry key
+## DEC-019 — A reserved calc_id is a PI create's retry key; PIs save independently
 
-- Date: 2026-10-23. Origin: #claude (UX-01/UX-02, branch claude/sql-on-page). Status: proposed.
-- Context: SQL now lives on the candidate page, one card per physical implementation (PI).
-  `metric_calc` has no `create_token` column, yet a create retried after a lost acknowledgement
-  must not insert twice (same risk as REL-10).
-- Decision: each PI card saves on its own (own revision, conditional UPDATE, conflict handling),
-  like the identity form. Before a new PI's first save the page reserves an id from
-  `seq_calc_id`; the INSERT is skipped when that id already exists, and a replay whose content
-  differs keeps the newer edits as an unsaved draft. No migration needed. The first PI of a
-  candidate is `is_default`; with two or more, each needs a "how it differs" label (`disambig`).
-- Alternatives: a `create_token` column (needs sql/004 before deploy); one Save for identity + SQL
-  (couples two records' conflicts into one form).
-- Consequences: abandoned cards leave sequence gaps (fine). Two people adding the first PI to the
-  same candidate at once can both get `is_default`; acceptable until promotion, which must
-  choose one anyway.
-- Related: UX-01, UX-02, REL-10; app/pi_section.py, app/services.py, app/repositories.py.
+- Date: 2026-10-23. Origin: #claude (UX-01/UX-02 backend, branch claude/sql-on-page). Status: proposed.
+  Numbered after DEC-018 on claude/product-focus; renumber on merge if taken.
+- Context: `metric_calc` has no `create_token` column, yet a PI create retried after a lost
+  acknowledgement must not insert twice (same risk as REL-10). Per DEC-018 the PI UI is built in
+  React (FE-02); this is the backend it calls.
+- Decision: each PI saves on its own (own revision, conditional UPDATE, conflict = latest row +
+  what changed), like the identity form. Before a new PI's first save the caller reserves an id
+  from `seq_calc_id` (`repo.reserve_calc_id`); the INSERT is skipped when that id already exists,
+  and a replay whose content differs returns a warning so the caller keeps the newer edits as
+  unsaved. No migration. The first PI of a candidate is `is_default`; with two or more, each needs
+  a "how it differs" label (`disambig`). Run status is bound to the revision it checked
+  (`services.validation_state`: Not run / ✓ Runs · rev N / ✗ SQL failed · rev N).
+- Alternatives: a `create_token` column (needs a migration before deploy); one Save for identity +
+  SQL (couples two records' conflicts).
+- Consequences: abandoned creates leave sequence gaps (fine). Two people adding the first PI to the
+  same candidate at once can both get `is_default`; acceptable until promotion, which must choose
+  one anyway. The parked Streamlit card UI (branch claude/sql-on-page-streamlit-ui) shows one way
+  to drive this API, including keeping drafts across card switches.
+- Related: UX-01, UX-02, REL-10, DEC-018, FE-02; app/services.py, app/repositories.py, tests/test_pi.py.
