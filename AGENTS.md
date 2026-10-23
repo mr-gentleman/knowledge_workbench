@@ -112,8 +112,16 @@ handling, promotion, serving of last-passing revisions, and rollback.
   shared files; preserve others' concurrent changes.
 - **Please end each commit with an `Agent:` trailer** naming tool and model (a convention, not enforced):
   `Agent: claude / claude-opus-5-5`, `Agent: coco / <model or auto>`, `Agent: codex / <model>`,
-  `Agent: human / chris`. Git history is the changelog — don't keep a separate one. View it with
+  `Agent: human / chris`. Git history has the detail; view it with
   `git log --format='%ad  %s  %(trailers:key=Agent,valueonly,separator=)' --date=short`.
+- **[docs/changelog.md](docs/changelog.md) is the high-level view for #chris** (decided 2026-10-23).
+  - **Deploy → add a Releases row in the same session**, newest first: date, commit + branch,
+    what changed (user-visible first, one line), DEC/task refs, DDL applied, how it was verified.
+    Say so plainly if the deployed branch isn't merged to main.
+  - **Merge to main or push a new branch → refresh its In-flight row** (one line: what it does,
+    refs, state). Drop rows for merged or deleted branches.
+  - Summaries, not diffs: no file lists, no commit-by-commit. Unknown = write "not recorded",
+    never guess. On a merge conflict in this file, keep both rows.
   Optional: `git config core.hooksPath .githooks` prints a reminder when it's missing; it never blocks.
 - Never commit secrets — `.gitignore` excludes `*secret*`, `.env`, `.snowflake/`.
 - Record meaningful architecture/code decisions in [docs/decisions.md](docs/decisions.md):

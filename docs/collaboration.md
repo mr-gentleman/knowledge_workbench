@@ -63,8 +63,9 @@ the evidence, cited — query IDs, test output, a link.
 
 **8. Every commit says who made it.** End each commit message with
 `Agent: <tool> / <model>` (e.g. `Agent: claude / claude-opus-5-5`, `Agent: human / chris`).
-Git history is the changelog; there is no separate changelog file (it would conflict
-constantly). Details and the `git log` one-liner are in AGENTS.md. A convention, not a gate:
+Git history holds the detail. [changelog.md](changelog.md) is the high-level summary:
+one row per deploy plus a snapshot of unmerged branches, updated only on deploy, merge or
+new branch so it rarely conflicts (rules in AGENTS.md; decided by #chris 2026-10-23). A convention, not a gate:
 `.githooks/commit-msg` only prints a reminder.
 
 ## Small conveniences (not rules)
