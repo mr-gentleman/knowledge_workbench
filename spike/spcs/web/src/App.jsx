@@ -13,6 +13,17 @@ const fromRow = r => ({
   updatedBy: r.UPDATED_BY, description: '', disambig: '', pis: [], loaded: false,
 });
 
+// Unconfirmed saves survive a closed tab: { [key]: { snap, body } } until the server confirms.
+const PENDING = 'kw.pendingSaves';
+const readStored = () => { try { return JSON.parse(localStorage.getItem(PENDING)) || {}; } catch { return {}; } };
+const store = (key, v) => {
+  try {
+    const all = readStored();
+    if (v) all[key] = v; else delete all[key];
+    localStorage.setItem(PENDING, JSON.stringify(all));
+  } catch { /* storage blocked: the draft lives only in memory */ }
+};
+
 const Icon = {
   metrics: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2" /></svg>,
   tables: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></svg>,
@@ -101,11 +112,21 @@ export default function App() {
   const [me, setMe] = useState(null);
   const [live, setLive] = useState({ state: 'loading' });
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [justSaved, setJustSaved] = useState(null); // {rev, ms}: the header's ✓ Saved pill, shown briefly
+  const [justSaved, setJustSaved] = useState({}); // {[key]: {rev, ms}}: the header's ✓ Saved pill, until the next Edit
   const [editing, setEditing] = useState(false); // DEC-020: read mode until Edit; one session per page
+  // Optimistic save, per metric: data = current draft, saved = last confirmed revision,
+  // pending[key] = { snap, body, state: 'saving' | 'failed' | 'conflict', msg } = the submitted snapshot.
+  const [pending, setPending] = useState({});
 
   const flash = msg => { setToast(msg); setTimeout(() => setToast(''), 2600); };
+  const inFlight = Object.values(pending).some(p => p.state === 'saving');
+
+  useEffect(() => {
+    if (!inFlight) return;
+    const warn = e => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [inFlight]);
 
   useEffect(() => {
     getMe().then(r => setMe(r.data)).catch(e => setMe({ error: e.message }));
@@ -113,13 +134,21 @@ export default function App() {
       .then(({ data: rows, ms }) => {
         // DEC-011: closed candidates are hidden by default.
         const cands = rows.filter(r => r.STATUS === 'open').map(fromRow);
-        setData(d => [...d, ...cands]); setSaved(s => [...s, ...cands]);
+        // A save left unconfirmed by a closed tab comes back as its draft, ready to Retry with the same op_id.
+        const stored = readStored(), restored = {};
+        const drafts = cands.map(c => {
+          if (!stored[c.key]) return c;
+          restored[c.key] = { ...stored[c.key], state: 'failed', msg: `Couldn't confirm the save of ${c.name} before the page closed. Your edits are kept.` };
+          return stored[c.key].snap;
+        });
+        setData(d => [...d, ...drafts]); setSaved(s => [...s, ...cands]); setPending(restored);
         setLive({ state: 'ok', n: cands.length, ms });
       })
       .catch(e => setLive({ state: 'error', msg: e.message }));
   }, []);
 
   const m = data.find(x => x.key === sel);
+  const pend = m && pending[m.key];
   const orig = saved.find(x => x.key === sel);
   const visible = data.filter(x => (filter === 'all' || x.kind === filter)
     && (!q || (x.name + ' ' + x.description + ' ' + x.disambig).toLowerCase().includes(q.toLowerCase())));
@@ -146,7 +175,7 @@ export default function App() {
     setSel(k); setError(''); setEditing(false);
     const t = data.find(x => x.key === k);
     setOpenPi(t.pis[0]?.id ?? null);
-    if (!t.live) return;
+    if (!t.live || pending[k]) return; // a refresh would overwrite the unconfirmed draft
     getCandidate(t.cid).then(({ data: r, ms }) => {
       const nm = { ...fromRow(r), description: r.DESCRIPTION || '', disambig: r.DISAMBIG || '', loaded: true, loadMs: ms };
       setData(d => replace(d, nm)); setSaved(s => replace(s, nm));
@@ -159,26 +188,43 @@ export default function App() {
       setData(d => replace(d, nm)); setSaved(s => replace(s, nm)); setEditing(false);
       return flash(`Saved ${m.name} · revision ${nm.rev} (sample, not persisted)`);
     }
-    setBusy(true); setError('');
+    // Optimistic: back to read mode with the submitted values now; "Saved" only once the server commits.
+    const fields = { full_name: m.name, description: m.description, disambig: m.disambig, department: m.deptRaw, category: m.category };
+    const body = { op_id: crypto.randomUUID(), candidate: { id: m.cid, expected_revision: orig.rev, fields }, calcs: [] };
+    setEditing(false); setError('');
+    send(m.key, { snap: m, body });
+  };
+  // One in-flight save per metric (Edit is disabled meanwhile). Retry resends the same body, so the same op_id.
+  const send = async (key, { snap, body }) => {
+    const settle = patch => setPending(p => (p[key]?.body.op_id === body.op_id ? patch(p) : p)); // ignore stale replies
+    const fail = (state, msg) => settle(p => ({ ...p, [key]: { snap, body, state, msg } }));
+    setPending(p => ({ ...p, [key]: { snap, body, state: 'saving' } }));
+    store(key, { snap, body });
     try {
-      const fields = { full_name: m.name, description: m.description, disambig: m.disambig, department: m.deptRaw, category: m.category };
-      const { data: out, ms } = await saveMetric({ id: m.cid, expected_revision: orig.rev, fields });
-      // conflict / invalid: nothing was written; stay in Edit with the draft intact.
-      if (out.status !== 'saved' && out.status !== 'no_change') { setError(out.message); return; }
-      const nm = { ...m, rev: out.candidate_revision, updatedBy: out.status === 'saved' ? me?.user : m.updatedBy };
-      setData(d => replace(d, nm)); setSaved(s => replace(s, nm)); setEditing(false);
-      if (out.status === 'saved') {
-        setJustSaved({ rev: out.candidate_revision, ms });
-        setTimeout(() => setJustSaved(null), 6000);
-      } else flash(`No changes · ${ms} ms`);
-      if (out.warnings?.length) setError(out.warnings.join(' '));
+      const { data: out, ms } = await saveMetric(body);
+      // conflict / invalid: nothing was written; the draft stays for the user to reopen.
+      if (out.status === 'conflict' || out.status === 'invalid') return fail('conflict', `${snap.name}: ${out.message}`);
+      if (out.status === 'failed') return fail('failed', `Couldn't save ${snap.name}. Your edits are kept. ${out.message}`);
+      const wrote = out.status === 'saved' || out.status === 'replayed';
+      const nm = { ...snap, rev: out.candidate_revision, updatedBy: wrote ? me?.user : snap.updatedBy };
+      // Replace the draft only if it is still the submitted snapshot — never mark newer edits saved.
+      setData(d => d.map(x => (x.key === key && x === snap ? nm : x))); setSaved(s => replace(s, nm));
+      settle(p => { const { [key]: _, ...rest } = p; return rest; });
+      store(key, null);
+      if (wrote) setJustSaved(j => ({ ...j, [key]: { rev: out.candidate_revision, ms } }));
+      else flash(`No changes · ${ms} ms`);
+      if (out.warnings?.length) flash(out.warnings.join(' '));
     } catch (e) {
-      setError(`Save failed: ${e.message}`);
-    } finally {
-      setBusy(false);
+      // Timeout or network error: the save may have landed. Retry with the same op_id finds out.
+      fail('failed', `Couldn't save ${snap.name}. Your edits are kept. (${e.status ? e.message : 'No answer from the server; Retry is safe.'})`);
     }
   };
-  const cancel = () => { setData(d => d.map(x => (x.key === sel ? orig : x))); setEditing(false); setError(''); };
+  const openDraft = key => {
+    setPending(p => { const { [key]: _, ...rest } = p; return rest; });
+    setNav('metrics'); setSel(key); setEditing(true); setError('');
+    setJustSaved(j => { const { [key]: _, ...rest } = j; return rest; });
+  };
+  const cancel = () => { setData(d => d.map(x => (x.key === sel ? orig : x))); setEditing(false); setError(''); store(sel, null); };
   const addPi = () => {
     const id = Date.now();
     setM({ pis: [...m.pis, pi(id, 'AC.conformed_dimensions.cohort_account_monthly_consolidation', '-- New implementation\nSELECT\n    \nFROM AC.\nWHERE ', { isDefault: m.pis.length === 0, validatedRev: 0, rev: 1, served: null, status: 'stale', source: 'sme' })] });
@@ -239,11 +285,12 @@ export default function App() {
             <div className="crumbs">{m.dept} / {m.category || 'Uncategorized'}</div>
             <div className="title">
               <h1>{m.name}</h1>{m.kind === 'canon' ? <span className="badge canon">Canon · #{m.id}</span> : <span className="badge cand">Candidate · {m.id}</span>}
-              {justSaved && <span className="savedpill" role="status"><span className="check">✓</span> Saved · rev {justSaved.rev} · {(justSaved.ms / 1000).toFixed(1)} s</span>}
+              {pend?.state === 'saving' && <span className="saving" role="status">Saving<span className="dots" aria-hidden="true"><i /><i /><i /></span></span>}
+              {justSaved[m.key] && <span className="savedpill" role="status"><span className="check">✓</span> Saved · rev {justSaved[m.key].rev} · {(justSaved[m.key].ms / 1000).toFixed(1)} s</span>}
               {!editing && (
                 <span className="titleactions">
-                  {m.kind === 'cand' ? <button className="btn" disabled={missing.length > 0}>Promote to canon</button> : null}
-                  <button className="btn primary" onClick={() => { setEditing(true); setJustSaved(null); }} disabled={m.live && !m.loaded}>Edit</button>
+                  {m.kind === 'cand' ? <button className="btn" disabled={missing.length > 0 || !!pend}>Promote to canon</button> : null}
+                  <button className="btn primary" onClick={() => openDraft(m.key)} disabled={(m.live && !m.loaded) || pend?.state === 'saving'}>Edit</button>
                 </span>
               )}
             </div>
@@ -252,6 +299,13 @@ export default function App() {
               {m.live ? <span>Last saved by <b>{m.updatedBy}</b></span> : <span>Slug <b>{m.key}</b></span>}
               {m.loadMs ? <span>Loaded in <b>{m.loadMs} ms</b></span> : null}
             </div>
+            {Object.entries(pending).filter(([, p]) => p.state !== 'saving').map(([k, p]) => (
+              <div key={k} className="error savefail" role="alert">
+                <span>{p.msg}</span>
+                {p.state === 'failed' && <button className="btn" onClick={() => send(k, p)}>Retry</button>}
+                <button className="btn" onClick={() => openDraft(k)}>Open my draft</button>
+              </div>
+            ))}
             {error && <div className="error" role="alert">{error}</div>}
             {missing.length ? <div className="missing">Can't promote to canon yet. Still needs {missing.join(' and ')}.</div> : null}
 
@@ -287,10 +341,10 @@ export default function App() {
         )}
         {nav === 'metrics' && m && editing && (
           <div className="savebar">
-            <span className="what">{busy ? <span className="saving" role="status">Saving changes<span className="dots" aria-hidden="true"><i /><i /><i /></span></span> : piDirtyLive ? 'The spike UI saves only the definition of a live candidate; the API accepts implementations, but this page does not send them yet.'
+            <span className="what">{piDirtyLive ? 'The spike UI saves only the definition of a live candidate; the API accepts implementations, but this page does not send them yet.'
               : dirty.length ? <>Editing · unsaved changes in <b>{dirty.join(', ')}</b></> : 'Editing · no changes yet'}</span>
-            <button className="btn ghost" onClick={cancel} disabled={busy}>Cancel</button>
-            <button className="btn primary" onClick={save} disabled={busy || piDirtyLive}>{busy ? 'Saving…' : 'Save changes'}</button>
+            <button className="btn ghost" onClick={cancel}>Cancel</button>
+            <button className="btn primary" onClick={save} disabled={piDirtyLive}>Save changes</button>
           </div>
         )}
       </main>
