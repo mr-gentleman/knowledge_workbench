@@ -48,6 +48,8 @@ new dependencies and abstraction layers; remove superseded code.**
   (Snowflake CLI >= 3.30; `snowflake.yml` lists the artifacts, including `pyproject.toml`).
 - Tests: `python -m unittest discover -s tests -v` (Python 3.11 + `streamlit>=1.50`). They use an
   in-memory fake for `app/repositories.py`, so they cover page and rule logic, not SQL.
+- Health readout: `scripts/health.sh` (size, complexity, lint, tests, feature counts, change since
+  last run). Paste its delta into the PR template's "Health delta" section.
 - Schema changes: add a new numbered file in `sql/`; never edit a shipped one.
 
 ## Architecture boundaries

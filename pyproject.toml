@@ -10,3 +10,8 @@ dependencies = [
     # SQL editor (chosen 2026-10-22; app/editor_spike.py is its options playground).
     "streamlit-code-editor==0.1.22",
 ]
+
+# Local dev tools for scripts/health.sh. Optional extras are never installed by the
+# app runtime; install locally with: uv pip install --python .venv -r pyproject.toml --extra dev
+[project.optional-dependencies]
+dev = ["ruff==0.17.0", "radon==6.0.1"]
