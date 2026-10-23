@@ -30,6 +30,22 @@ new dependencies and abstraction layers; remove superseded code.**
   during feature work.
 - Remove paths your work made obsolete. Leave other contributors' work alone.
 
+## Product focus — what gets built
+
+The unit of focus is a workflow, not a feature. V1 core workflow: *an SME finds a
+metric needing attention, understands its definition and evidence, corrects it, and
+leaves it in a clear review state.* Make that work end to end — and look polished —
+before widening.
+
+- Implement the agreed workflow. Propose anything else separately, naming who needs
+  it, what task gets materially harder without it, and the simplest alternative.
+  Never silently expand scope.
+- Defaults over options: a toggle, mode, or tab often means a product decision
+  hasn't been made yet.
+- "Cheap to build" is not a justification; a feature must earn its ongoing place.
+- Spend depth where human judgment happens: readable definitions and SQL,
+  provenance, proposed vs accepted, corrections that never lose work.
+
 ## Project facts
 
 - Streamlit in Snowflake, **container runtime** (Python 3.11, Streamlit ≥ 1.50).

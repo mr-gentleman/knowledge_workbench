@@ -15,6 +15,28 @@ Standing engineering philosophy and coding instructions: [AGENTS.md](../AGENTS.m
 - Evidence labels below distinguish **code observation**, **suspected defect**, **documented verification**, and **planned feature**.
 - This file is the current task/status source of truth. Design rationale stays in [app-design-notes.md](app-design-notes.md); import constraints stay in [open-items.md](open-items.md). Their older next-step lists are historical. If moved to an issue board later, link the issues here and explicitly choose one status source.
 
+## Plan of record — 2026-10-23 (product focus; amends step 4 below)
+
+**#chris #claude**, from a GPT Astra product-philosophy discussion. See "Product focus" in [AGENTS.md](../AGENTS.md).
+V1 narrows from "retire Sheets" to one workflow — **find → understand → correct → clear review state** — built
+to a polished bar. Lifecycle, import and serving follow V1; they are not removed.
+
+1. **Close VERIFY debt first.** Deploy the hardening branch and run its live checks before new feature work.
+2. **One-page workflow spec**, front-end-independent: screens (find list → record workspace), record states, and
+   what "saved" looks like. Doubles as the SPCS spike's test screen.
+3. **Build only that workflow:** FIND-01/02, UX-01/02/03, REL-04. Provenance/evidence on the workspace is in
+   scope (no ID yet — file one with the spec).
+4. **V1 must look good**, not just work — it is the first impression for SMEs. SME sessions (e.g. five real
+   metrics with an SME, alongside the SERVE-02 trial) start once V1 meets that bar; their findings set the
+   next priorities.
+5. **Then** lifecycle (CHECK/LIFE), import, serving — as in step 4 below.
+
+**Moved out of V1 core:** UX-04 fact-table interface → after V1; seed the registry instead (already sufficient
+for promotion testing). HIST-01/02 diffs only if the workflow needs them.
+
+**Open decision (#chris):** what "clear review state" means in V1 — candidate vs canon (pulls CHECK/LIFE into V1)
+or a lighter "reviewed by X on date" marker (keeps V1 to find + edit). #claude leans lighter.
+
 ## Plan of record — 2026-10-22 (pre-SME hardening, then V1)
 
 **Hold SME onboarding** until Step 1–2 are done (Astra review, DEC-007).
