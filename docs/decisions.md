@@ -305,3 +305,15 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
 - Related: CHECK-01, CHECK-06, CHECK-07, DEC-019, DEC-021; sql/007_sql_check.sql, app/repositories.py
   (`run_check`, `record_check`), app/services.py (`check_calc`), api/test_api.py (CheckTest).
 
+## DEC-023 — A SQL check stays valid until the SQL changes; the oldest active PI is the default
+
+- Date: 2026-10-23. Origin: decided by #chris; built by #claude (claude/implementations). Amends
+  DEC-019's run-status rule. Renumber on merge if taken.
+- Decision: a PI edit that keeps `sql_text` carries `validated_revision_no` to the new revision, so
+  editing "When to use" or the fact table keeps "✓ Runs". The default is re-set on every PI write to
+  the oldest active PI (lowest calc_id); retired PIs are never default and stay hidden on the page.
+- How: `sql/008_save_metric_keep_check.sql` (replaces the save procedure; otherwise 004 unchanged);
+  the page mirrors the carry-over using the save's `checks_due` (web/src/metricSave.js).
+- Alternatives: keep the strict per-revision rule (label edits would demand a re-check).
+- Related: CHECK-01, CHECK-06, UX-06, DEC-019, DEC-022.
+

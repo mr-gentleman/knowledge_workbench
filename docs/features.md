@@ -138,7 +138,7 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | UX-03 | TODO | P2 / V1 | Tighten the identity form: clearer grouping/help text, obvious required fields, and hide free-text category until a controlled list exists. Keep name-only draft creation. | #chris #existing — planned improvement |
 | UX-04 | TODO | P2 / V1 | Add a lean separate fact-table browse/create/edit interface for name, definition, grain, key, time field, required filters, and gotchas. Seed/import active registry records before promotion testing; defer richer table workflows, joins, and dimensions. Included in the six-step sprint plan. | #existing #chris #codex — scope advanced from Next on 2026-10-21 |
 | UX-05 | TODO | P3 / Next | Add synonyms as separate records and include them in discovery. | #existing — planned feature |
-| UX-06 | TODO | P2 / V1 | Retiring the default PI makes the next-oldest active PI the default (#chris 2026-10-23: oldest active PI is default). The page already shows it that way; the save procedure doesn't yet set `is_default` (new numbered sql/ file → CoCo). | #chris #claude 2026-10-23 |
+| UX-06 | DOING | P2 / V1 | Retiring the default PI makes the next-oldest active PI the default (#chris 2026-10-23: oldest active PI is default). | #chris #claude 2026-10-23 — sql/008 re-sets is_default on every PI write; not yet run by CoCo. Once it is, `services._mark_default` is redundant and can go. |
 | UX-07 | TODO | P3 / V1 | "Show retired" on Implementations: retired PIs stay hidden by default (#chris 2026-10-23). | #chris 2026-10-23 |
 
 ## Validation / readiness
@@ -146,7 +146,7 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | ID | Status | Priority / scope | Task and acceptance check | Origin / evidence |
 |---|---|---|---|---|
 | CHECK-01 | DOING | P2 / V1 | Validate SQL against the exact PI revision checked. A later edit cannot inherit that pass; a late check result cannot approve a different revision. Saving SQL does not execute it. | #existing — planned feature. #claude 2026-10-23, branch claude/implementations (DEC-022): `POST /api/pis/{id}/check` runs the saved SQL through read-only `run_check` (sql/007, WORKBENCH_SQLCHECK) and stamps only that revision; Run check button in the PI section. Local tests only; sql/007 not yet run by CoCo (docs/sql-check-handoff.md). |
-| CHECK-06 | TODO | P2 / V1 | A label or fact-table edit bumps the PI revision, so its check reads "Not run" though the SQL didn't change. Decide: carry the result over when only SQL is unchanged (save proc), or keep it strict. | #claude 2026-10-23 — found building CHECK-01 |
+| CHECK-06 | DOING | P2 / V1 | A check stays valid until the PI's SQL changes; label or fact-table edits keep it. | #claude 2026-10-23 — found building CHECK-01; #chris decided 2026-10-23 "stays unless the SQL is edited". Built in sql/008 (save proc) + page; sql/008 not yet run by CoCo. |
 | CHECK-07 | TODO | P3 / V1 | "▶ Run preview" in the SQL editor still shows fake rows. Run the draft through `run_check`, recording nothing; optionally auto-check `checks_due` after a save. | #claude 2026-10-23 |
 | CHECK-02 | TODO | P2 / V1 | Show computed readiness: description present, at least one currently passing PI, and valid active source-table linkage. Explain why Promote is unavailable. | #existing — planned feature |
 | CHECK-03 | TODO | P2 / V1 | Enforce PI source_table matching an active fact_table_core entry at the required gate, using the agreed three-part name. | #existing — planned feature |

@@ -43,7 +43,12 @@ export function outcome(out, snap, user) {
     return { failed: 'conflict', msg: [`${snap.name}: ${out.message}`, ...(out.problems || []).map(p => p.message)].join(' ') };
   if (out.status === 'failed') return { failed: 'failed', msg: `Couldn't save ${snap.name}. Your edits are kept. ${out.message}` };
   const wrote = out.status === 'saved' || out.status === 'replayed';
-  const pis = snap.pis.map(p => ({ ...p, rev: out.calc_revisions?.[p.id] ?? p.rev }));
+  // A check stays valid until the SQL changes (sql/008): PIs not in checks_due carry it to their new revision.
+  const pis = snap.pis.map(p => {
+    const rev = out.calc_revisions?.[p.id] ?? p.rev;
+    const keep = p.validatedRev === p.rev && !(out.checks_due || []).includes(p.id);
+    return { ...p, rev, validatedRev: keep ? rev : p.validatedRev };
+  });
   return { saved: { ...snap, pis, rev: out.candidate_revision, updatedBy: wrote ? user : snap.updatedBy }, wrote };
 }
 
