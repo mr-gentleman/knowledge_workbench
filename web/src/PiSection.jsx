@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import SqlEditor from './SqlEditor.jsx';
 import { FACT } from './sample.js';
-import { piChanged, piTitle, runState } from './pis.js';
+import { followTable, piChanged, piTitle, runState, sqlTables } from './pis.js';
 import './PiSection.css';
 
 const STARTER = '-- New implementation\nSELECT\n    \nFROM AC.\nWHERE ';
@@ -68,7 +68,9 @@ function CheckBar({ p, o, check }) {
 }
 
 function PiRow({ p, o, isDefault, several, open, editing, check, onToggle, onChange, onRemove }) {
-  const grain = FACT[p.table] || '—';
+  const grain = Object.entries(FACT).find(([t]) => t.toLowerCase() === p.table.toLowerCase())?.[1] || '—';
+  const reads = sqlTables(p.sql);
+  const others = reads.filter(t => t.toLowerCase() !== p.table.toLowerCase());
   const title = piTitle(p, several);
   const short = p.table ? p.table.split('.').pop() : '';
   const status = runState(p, o);
@@ -99,27 +101,37 @@ function PiRow({ p, o, isDefault, several, open, editing, check, onToggle, onCha
       )}
       {open && editing && (
         <div className="pibody">
-          <SqlEditor id={'sql-' + p.id} fileName={(short || 'new') + '.sql'} value={p.sql} onChange={v => onChange({ sql: v })} />
+          <SqlEditor
+            id={'sql-' + p.id}
+            fileName={(short || 'new') + '.sql'}
+            value={p.sql}
+            onChange={v => onChange({ sql: v, table: followTable(p, v) })}
+          />
           <CheckBar key={p.rev} p={p} o={o} check={check} />
           <div className="grid2">
             <div className="field">
               <label htmlFor={'tbl-' + p.id}>Fact table</label>
-              <select
+              <input
                 id={'tbl-' + p.id}
-                className={'select' + changed('table')}
+                className={'input mono' + changed('table')}
                 value={p.table}
-                onChange={e => onChange({ table: e.target.value })}
-              >
-                <option value="" disabled>
-                  Choose a fact table…
-                </option>
+                list="fact-tables"
+                placeholder="Filled in from the SQL: FROM AC.schema.table"
+                spellCheck="false"
+                onChange={e => onChange({ table: e.target.value.trim() })}
+              />
+              <datalist id="fact-tables">
                 {Object.keys(FACT).map(t => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
+                  <option key={t} value={t} />
                 ))}
-              </select>
-              <span className="hint">{p.table ? `Grain comes from the fact table: ${grain}.` : 'Grain comes from the fact table.'}</span>
+              </datalist>
+              <span className={'hint' + (p.table && reads.length && others.length === reads.length ? ' need' : '')}>
+                {!p.table
+                  ? 'The primary table the SQL reads; filled in as you write it.'
+                  : reads.length && others.length === reads.length
+                    ? `Not in the SQL, which reads ${reads.join(', ')}.`
+                    : `Grain: ${grain}.` + (others.length ? ` The SQL also reads ${others.join(', ')}.` : '')}
+              </span>
             </div>
             <div className="field">
               <label htmlFor={'dis-' + p.id}>When to use</label>

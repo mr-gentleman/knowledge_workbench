@@ -45,3 +45,20 @@ export function calcsBody(pis, origPis) {
     .map(o => ({ calc_id: o.id, expected_revision: o.rev, retire: true, fields: fields(o) }));
   return [...touched, ...removed];
 }
+
+// Fully qualified tables the SQL reads (FROM / JOIN db.schema.table), in order, without repeats.
+// Comments and string literals are ignored; CTE names never match because they aren't three-part.
+export function sqlTables(sql) {
+  const code = sql.replace(/--[^\n]*|\/\*[\s\S]*?\*\/|'(?:[^']|'')*'/g, ' ');
+  const seen = new Map();
+  for (const [, t] of code.matchAll(/\b(?:FROM|JOIN)\s+([A-Za-z_][\w$]*\.[A-Za-z_][\w$]*\.[A-Za-z_][\w$]*)/gi))
+    if (!seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t);
+  return [...seen.values()];
+}
+
+// The fact table follows the SQL's first table while the SME hasn't typed a different one.
+export function followTable(p, sql) {
+  const before = sqlTables(p.sql)[0] || '';
+  if (p.table && p.table.toLowerCase() !== before.toLowerCase()) return p.table;
+  return sqlTables(sql)[0] || '';
+}
