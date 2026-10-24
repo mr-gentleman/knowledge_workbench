@@ -140,6 +140,7 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 | UX-05 | TODO | P3 / Next | Add synonyms as separate records and include them in discovery. | #existing — planned feature |
 | UX-06 | DOING | P2 / V1 | Retiring the default PI makes the next-oldest active PI the default (#chris 2026-10-23: oldest active PI is default). | #chris #claude 2026-10-23 — sql/008 re-sets is_default on every PI write; not yet run by CoCo. Once it is, `services._mark_default` is redundant and can go. |
 | UX-07 | TODO | P3 / V1 | "Show retired" on Implementations: retired PIs stay hidden by default (#chris 2026-10-23). | #chris 2026-10-23 |
+| UX-08 | IDEA | P3 / Later | "Suggest" button on the metric page (then other screens): from the name (and SQL, if present) draft department, category and a starter description. Suggestions show as pending edits the SME accepts or discards, marked as AI-drafted in history; never SQL. Fact table already fills from the SQL (CHECK-03). Before building: ask a few SMEs whether it helps or becomes a crutch. Likely Snowflake Cortex (AI_COMPLETE), so data stays in Snowflake; needs a grant (CoCo). | #chris 2026-10-23 — feature request, undecided |
 
 ## Validation / readiness
 
