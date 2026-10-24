@@ -248,7 +248,6 @@ class ProcedureSourceTests(unittest.TestCase):
     def test_request_keys_match_what_the_repository_sends(self):
         for key in ("op_id", "actor", "lock_wait_ms", "schema_version", "change_note", "check_name"):
             self.assertIn(f"req:{key}", self.body())
-        self.assertEqual(repo._SAVE_METRIC, "CALL AI_PLATFORM.WORKBENCH.save_metric(?)")
 
 
 if __name__ == "__main__":

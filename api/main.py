@@ -67,10 +67,44 @@ def get_candidate(candidate_id: int):
     return row
 
 
+class FactTableDraft(BaseModel):
+    table_name: str
+    expected_revision: int | None = None  # None = create
+    fields: dict = {}
+
+
+class FactTableSave(BaseModel):
+    op_id: str | None = None  # resend the same op_id when retrying a draft
+    table: FactTableDraft
+    change_note: str | None = None
+
+
+def _lower(row: dict | None) -> dict | None:
+    return row and {k.lower(): v for k, v in row.items()}
+
+
 @api.get("/api/fact-tables")
 def list_fact_tables():
     """The fact-table registry, lower-case keys; table_name is AC.SCHEMA.TABLE."""
-    return [{k.lower(): v for k, v in r.as_dict().items()} for r in repo.list_fact_tables()]
+    return [_lower(r.as_dict()) for r in repo.list_fact_tables()]
+
+
+@api.get("/api/fact-tables/{table_name}")
+def get_fact_table(table_name: str):
+    row = repo.get_fact_table(table_name)
+    if row is None:
+        raise HTTPException(404, f"Fact table {table_name} not found.")
+    return {**_lower(row), "table_name": row["TABLE_NAME_FULL"]}
+
+
+@api.post("/api/fact-tables/save")
+def save_fact_table(body: FactTableSave, request: Request):
+    actor = spcs.viewer(request)
+    out = asdict(services.save_fact_table(actor, body.op_id or str(uuid.uuid4()), body.table.model_dump(),
+                                          body.change_note))
+    if out["conflict"]:
+        out["conflict"]["latest"] = _lower(out["conflict"]["latest"])
+    return out
 
 
 @api.post("/api/metrics/save")

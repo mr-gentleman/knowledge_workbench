@@ -83,10 +83,12 @@ def list_fact_tables():
     )
 
 
+def get_fact_table(table_name: str):
+    rows = query(f"SELECT * FROM {SCHEMA}.fact_table_core WHERE table_name_full = ?", [table_name])
+    return rows[0].as_dict() if rows else None
+
+
 # ── the one write path ──────────────────────────────────────────────────────
-
-_SAVE_METRIC = f"CALL {SCHEMA}.save_metric(?)"
-
 
 def save_metric(op_id: str, actor: str, candidate: dict, calcs: list[dict],
                 change_note: str | None = None, check_name: str | None = None) -> dict:
@@ -94,21 +96,31 @@ def save_metric(op_id: str, actor: str, candidate: dict, calcs: list[dict],
     candidate: {id, expected_revision, create_token, fields}; calcs: [{calc_id, expected_revision,
     retire, is_default, fields}]. Returns the procedure's result (outcome committed | no_change |
     conflict | replayed; see sql/004). Reuse op_id when retrying the same draft: a save that
-    landed is then reported as replayed instead of conflicting with itself.
-    A transaction can't outlive the CALL, but a failed or interrupted CALL may or may not have
+    landed is then reported as replayed instead of conflicting with itself."""
+    return _call_save("save_metric", "metric.save", op_id, actor, candidate.get("id"),
+                      {"change_note": change_note, "check_name": check_name,
+                       "candidate": {**candidate, "fields": _nulls(candidate["fields"])},
+                       "calcs": [{**c, "fields": _nulls(c["fields"])} for c in calcs]})
+
+
+def save_fact_table(op_id: str, actor: str, table: dict, change_note: str | None = None) -> dict:
+    """Creates or edits one fact table in one CALL (sql/005). table: {table_name, expected_revision
+    (None = create), fields}. Outcome committed | no_change | conflict | exists | replayed."""
+    return _call_save("save_fact_table", "fact_table.save", op_id, actor, table["table_name"],
+                      {"change_note": change_note, "table": {**table, "fields": _nulls(table["fields"])}})
+
+
+def _call_save(proc: str, op: str, op_id: str, actor: str, record_id, request: dict) -> dict:
+    """A transaction can't outlive the CALL, but a failed or interrupted CALL may or may not have
     committed, so the connection is proven clean before reuse (DEC-008)."""
     started, outcome = time.monotonic(), "uncertain"
-    tag = json.dumps({"op_id": op_id, "op": "metric.save", "actor": actor,
-                      "record_id": candidate.get("id")}, sort_keys=True)
+    tag = json.dumps({"op_id": op_id, "op": op, "actor": actor, "record_id": record_id}, sort_keys=True)
     with locked_session() as s:
         lock_wait_ms = _ms(started)
         request = {"op_id": op_id, "actor": actor, "lock_wait_ms": lock_wait_ms,
-                   "schema_version": SNAPSHOT_VERSION, "change_note": change_note,
-                   "check_name": check_name,
-                   "candidate": {**candidate, "fields": _nulls(candidate["fields"])},
-                   "calcs": [{**c, "fields": _nulls(c["fields"])} for c in calcs]}
+                   "schema_version": SNAPSHOT_VERSION, **request}
         try:
-            rows = s.sql(_SAVE_METRIC, params=[json.dumps(request)]).collect(
+            rows = s.sql(f"CALL {SCHEMA}.{proc}(?)", params=[json.dumps(request)]).collect(
                 statement_params={"QUERY_TAG": tag})
             result = json.loads(rows[0][0])
             outcome = result["outcome"]
@@ -117,8 +129,8 @@ def save_metric(op_id: str, actor: str, candidate: dict, calcs: list[dict],
             mark_dirty()
             raise
         finally:
-            log.info("op %s metric.save %s record=%s %s wait=%sms total=%sms",
-                     op_id, actor, candidate.get("id"), outcome, lock_wait_ms, _ms(started))
+            log.info("op %s %s %s record=%s %s wait=%sms total=%sms",
+                     op_id, op, actor, record_id, outcome, lock_wait_ms, _ms(started))
 
 
 def _nulls(fields: dict) -> dict:

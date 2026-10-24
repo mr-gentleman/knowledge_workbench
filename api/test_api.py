@@ -61,6 +61,19 @@ class FactTablesTest(unittest.TestCase):
         self.assertEqual(r.json(), [{"table_name": "AC.FINANCE.MRR", "grain": "one row per account per day",
                                      "status": "active"}])
 
+    def test_save_is_attributed_to_header_user_and_conflict_rows_are_lower_case(self):
+        latest = {**{k.upper(): None for k in main.services.FACT_EDITABLE},
+                  "TABLE_NAME_FULL": "AC.FINANCE.MRR", "GRAIN": "daily", "REVISION_NO": 2, "UPDATED_BY": "ALICE"}
+        with mock.patch.object(spcs, "IN_SPCS", True), \
+             mock.patch.object(main.repo, "save_fact_table", return_value={"outcome": "conflict"}) as call, \
+             mock.patch.object(main.repo, "get_fact_table", return_value=latest), \
+             mock.patch.object(main.repo, "snapshot_at", return_value=None):
+            r = TestClient(main.api).post("/api/fact-tables/save", headers={spcs.USER_HEADER: "CLENZINI"},
+                                          json={"table": {"table_name": "AC.FINANCE.MRR", "expected_revision": 1,
+                                                          "fields": {"grain": "weekly"}}})
+        self.assertEqual(call.call_args.args[1], "CLENZINI")
+        self.assertEqual((r.json()["status"], r.json()["conflict"]["latest"]["grain"]), ("conflict", "daily"))
+
 
 class ConnectionTest(unittest.TestCase):
     def test_spcs_connection_binds_qmark(self):
