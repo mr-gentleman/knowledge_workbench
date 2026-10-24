@@ -91,6 +91,7 @@ Answer before calling a change done. In the commit/PR summary write
 | **Latency** | How many queries does one click now cost? | Query in a loop; the same row fetched twice per click; unbounded `SELECT` with no `LIMIT`; loading data for a screen nobody opened |
 | **Dependencies** | Is a new package worth a platform change? | Package for something ~20 lines of code would do |
 | **Dead code** | Did anything become unused? | Old helpers left behind; commented-out code; a second copy of the same logic |
+| **Staged files** | Does `git diff --cached --stat` list only files you meant to change? | `node_modules/`, `dist/`, caches; hundreds of files for a docs change; files you didn't touch |
 
 These are judgment calls, not thresholds. Don't chase line counts, complexity
 scores, or coverage percentages, and don't split functions into meaningless
@@ -140,7 +141,14 @@ handling, promotion, serving of last-passing revisions, and rollback.
     refs, state). Drop rows for merged or deleted branches.
   - Summaries, not diffs: no file lists, no commit-by-commit. Unknown = write "not recorded",
     never guess. On a merge conflict in this file, keep both rows.
-  Optional: `git config core.hooksPath .githooks` prints a reminder when it's missing; it never blocks.
+  `.githooks/commit-msg` prints a reminder when the trailer is missing; it never blocks.
+- **Stage explicit paths; never `git add -A`, `git add .`, `-u` or `commit -a`.** Switching a
+  worktree to a branch without `web/` leaves untracked `node_modules/` and `dist/` behind, and a
+  catch-all add commits them (happened 2026-10-23: 10.9k files in a docs commit). Run `git status`
+  before staging. Guards: `.githooks/pre-commit` blocks dependency/build paths, >200 new files and
+  files >1 MB; `.claude/settings.json` blocks catch-all adds for Claude Code. `--no-verify` only
+  with Chris's OK. Setup once per clone (covers every worktree, whatever its branch):
+  `git config core.hooksPath "$(git rev-parse --path-format=absolute --git-common-dir)/../.githooks"`.
 - **Astra reviews: ask Chris first, every time; one call, no ping-pong.** Each run costs
   Snowflake credits. Before running `scripts/review.sh <branch> --yes`, show Chris the
   branch, the dry-run size (`scripts/review.sh <branch>` without `--yes`) and why it needs
