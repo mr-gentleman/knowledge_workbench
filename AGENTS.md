@@ -121,9 +121,13 @@ handling, promotion, serving of last-passing revisions, and rollback.
   import constraints → `docs/open-items.md`.
 - Origin tags #codex / #claude / #chris (#existing when unknown). Origin ≠ owner.
   Keep stable IDs; add dated completion evidence.
-- One branch per change: `codex/<topic>`, `claude/<topic>`. Merge to `main` via
-  review unless #chris says otherwise. Fetch and read the latest before editing
-  shared files; preserve others' concurrent changes.
+- One branch per change: `codex/<topic>`, `claude/<topic>`. **Merge to `main` yourself once the branch is
+  finished and the checks pass** (#chris 2026-10-23) — holding finished, tested work back is the bigger risk.
+  Pause for #chris only when there's something he should review first (a decision, grants or owner rights,
+  writes outside WORKBENCH, an irreversible data change), or for an Astra checkpoint on a mid/high-risk
+  branch. Before merging: merge `origin/main` into the branch and re-run the checks; one lane merges at a
+  time; never force-push `main`. Fetch and read the latest before editing shared files; preserve others'
+  concurrent changes.
 - **Please end each commit with an `Agent:` trailer** naming tool and model (a convention, not enforced):
   `Agent: claude / claude-opus-5-5`, `Agent: coco / <model or auto>`, `Agent: codex / <model>`,
   `Agent: human / chris`. Git history has the detail; view it with

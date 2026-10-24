@@ -22,3 +22,7 @@ export const saveMetric = body => call('POST', '/api/metrics/save', body, 30000)
 export const reservePi = () => call('POST', '/api/pis/reserve');
 // Runs a saved PI's SQL read-only on Snowflake and records the result on that revision (server timeout 30 s).
 export const checkPi = (id, revision_no) => call('POST', `/api/pis/${id}/check`, { revision_no }, 45000);
+export const listFactTables = () => call('GET', '/api/fact-tables');
+export const getFactTable = name => call('GET', `/api/fact-tables/${encodeURIComponent(name)}`);
+// body = { op_id, table: { table_name, expected_revision (null = create), fields } }; Retry resends the same op_id.
+export const saveFactTable = body => call('POST', '/api/fact-tables/save', body, 30000);

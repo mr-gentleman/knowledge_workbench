@@ -69,6 +69,79 @@ def params_of(s, needle):
     return next(p for text, p in s.calls if needle in text)
 
 
+FACT = "AC.FINANCE.MRR"
+FACT_STORED = [False, True, None, None, None, None, None, "daily", None, None, None, "active"]
+
+
+def call_fact_save(s, expected=3, fields=None, stored=FACT_STORED):
+    """repo.save_fact_table against a FakeSession whose first read returns stored
+    (replayed, found, then the editable fields)."""
+    s.rows.setdefault("> 0,", [stored])
+    with patch.object(db, "session", return_value=s):
+        return repo.save_fact_table("op1", "viewer", {"table_name": FACT, "expected_revision": expected,
+                                    "fields": fields or {"grain": "weekly", "gotchas": "", "status": "active"}}, "why")
+
+
+class FactTableTransactionTests(unittest.TestCase):
+    """DEC-025 / PLAT-11: fact tables save with the same pattern as metrics."""
+
+    def setUp(self):
+        fresh_state(self)
+
+    def test_edit_writes_row_history_and_log_in_one_transaction(self):
+        s = FakeSession()
+        res = call_fact_save(s)
+        self.assertEqual((res["outcome"], res["revision_no"]), ("committed", 4))
+        self.assertEqual([q.split()[0] for q in s.statements], ["SELECT", "BEGIN", "UPDATE", "INSERT", "COMMIT"])
+        update = params_of(s, "SET display_name")
+        self.assertEqual(update[-3:], ["viewer", FACT, 3])  # conditional on the expected revision
+        self.assertIsNone(update[3])  # gotchas "" saved as NULL
+        history = params_of(s, "INSERT ALL")
+        self.assertEqual(history[:4], ["edit", repo.SNAPSHOT_VERSION, "viewer", "why"])
+        tag = json.loads(s.results[0].collect.call_args.kwargs["statement_params"]["QUERY_TAG"])
+        self.assertEqual((tag["op"], tag["record_id"]), ("fact_table.save", FACT))
+        self.assertFalse(db.is_dirty())
+
+    def test_retire_is_recorded_as_retire(self):
+        s = FakeSession()
+        call_fact_save(s, fields={"grain": "daily", "status": "retired"})
+        self.assertEqual(params_of(s, "INSERT ALL")[0], "retire")
+
+    def test_create_inserts_only_if_the_name_is_free(self):
+        s = FakeSession()
+        res = call_fact_save(s, expected=None, stored=[False, False] + [None] * 10)
+        self.assertEqual((res["outcome"], res["revision_no"]), ("committed", 1))
+        self.assertIn("WHERE NOT EXISTS", next(q for q in s.statements if q.startswith("INSERT INTO")))
+        self.assertEqual(params_of(s, "INSERT ALL")[0], "create")
+
+    def test_outcomes_that_write_nothing(self):
+        cases = (([True, True] + FACT_STORED[2:], 3, "replayed"),          # this op already committed
+                 ([False, False] + [None] * 10, 3, "conflict"),            # not at the expected revision
+                 (FACT_STORED, None, "exists"),                            # create of a registered name
+                 ([False, True, None, "", None, None, None, "weekly", None, None, None, "active"], 3, "no_change"))
+        for stored, expected, outcome in cases:
+            s = FakeSession()
+            res = call_fact_save(s, expected=expected, stored=stored)
+            self.assertEqual(res["outcome"], outcome)
+            self.assertNotIn("BEGIN", s.statements)
+            self.assertIn(FACT, params_of(s, "INSERT INTO AI_PLATFORM.WORKBENCH.op_log"))
+
+    def test_race_lost_after_the_check_rolls_back(self):
+        for expected, rows, outcome in ((3, {"SET display_name": [[0]]}, "conflict"),
+                                        (None, {"WHERE NOT EXISTS": [[0]]}, "exists")):
+            s = FakeSession(rows=rows)
+            stored = FACT_STORED if expected else [False, False] + [None] * 10
+            self.assertEqual(call_fact_save(s, expected=expected, stored=stored)["outcome"], outcome)
+            self.assertIn("ROLLBACK", s.statements)
+            self.assertNotIn("COMMIT", s.statements)
+            self.assertFalse(db.is_dirty())
+
+    def test_failed_commit_quarantines(self):
+        with self.assertRaises(RuntimeError):
+            call_fact_save(FakeSession(fail={"COMMIT": [RuntimeError("lost ack")]}))
+        self.assertTrue(db.is_dirty())
+
+
 class SaveTransactionTests(unittest.TestCase):
     """DEC-025: the save is one transaction on the shared connection, opened and ended inside
     repo.save_metric; history and the committed op_log row are one statement; a failure can't leak an

@@ -5,6 +5,8 @@ __pycache__/
 .snowflake/
 .DS_Store
 output/
+web/node_modules/
+web/dist/
 
 # local secrets
 *secret*

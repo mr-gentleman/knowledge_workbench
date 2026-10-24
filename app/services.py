@@ -1,5 +1,6 @@
 """Workflows + invariants. Pages call these; these call repositories."""
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 
@@ -134,6 +135,8 @@ class CheckOutcome:
 
 
 CHECK_PREVIEW_ROWS = 20
+# Final semicolons and anything after them that is only whitespace or comments; run_check wraps the SQL.
+_TRAILING_END = re.compile(r"(;|\s|--[^\n]*|/\*.*?\*/)*$", re.S)
 
 
 def check_calc(actor: str, calc_id: int, revision_no: int) -> CheckOutcome:
@@ -143,7 +146,7 @@ def check_calc(actor: str, calc_id: int, revision_no: int) -> CheckOutcome:
     if calc is None or calc["STATUS"] != "active" or calc["REVISION_NO"] != revision_no:
         return CheckOutcome("moved", "This implementation changed since you opened it. Reload to check "
                             "the latest version.", revision_no)
-    sql = (calc["SQL_TEXT"] or "").strip().rstrip(";").rstrip()
+    sql = _TRAILING_END.sub("", calc["SQL_TEXT"] or "").strip()
     try:
         res = repo.run_check(sql) if sql else {"ok": False, "ms": 0, "columns": [], "rows": [],
                                                  "query_id": None, "error": "There is no SQL to run."}
@@ -282,7 +285,7 @@ def _metric_conflict(draft: dict, calcs: list[dict]) -> MetricOutcome:
                          draft.get("id"), conflicts=conflicts)
 
 
-def _conflict_entry(record, record_id: int, expected: int, latest: dict | None,
+def _conflict_entry(record, record_id, expected: int, latest: dict | None,
                     record_type: str, labels: dict) -> dict:
     opened = repo.snapshot_at(record_type, record_id, expected) or {}
     changed = [label for k, label in labels.items()
@@ -308,6 +311,74 @@ def _metric_replayed(mid: int, draft: dict, calcs: list[dict]) -> MetricOutcome:
     warnings = [("Your earlier save did go through. Your newer changes are still in the draft — "
                  "Save again to apply them.")] if differs else []
     return MetricOutcome("saved", "Saved.", mid, landed["REVISION_NO"], revisions, warnings=warnings)
+
+
+# ── fact tables (UX-04): one record, keyed on its 3-part name ─────────────────
+
+FACT_EDITABLE = ("display_name", "description", "disambig", "gotchas", "required_filter", "grain",
+                 "primary_key", "time_dimension", "department", "status")
+FACT_LABELS = {"display_name": "Display name", "description": "Definition", "disambig": "When to use",
+               "gotchas": "Gotchas", "required_filter": "Required filters", "grain": "Grain",
+               "primary_key": "Key", "time_dimension": "Time field", "department": "Department",
+               "status": "Status"}
+_TABLE_NAME = re.compile(r"AC\.[A-Z0-9_$]+\.[A-Z0-9_$]+")
+
+
+def fact_table_name(value: str | None) -> str | None:
+    """The stored form of a table name (AC.SCHEMA.TABLE, upper case), or None if it isn't one.
+    Unquoted Snowflake identifiers are upper case, so this is the name PIs' SQL resolves to."""
+    name = (value or "").strip().upper()
+    return name if _TABLE_NAME.fullmatch(name) else None
+
+
+@dataclass
+class FactTableOutcome:
+    status: str  # saved | no_change | invalid | conflict | failed
+    message: str
+    table_name: str | None = None
+    revision_no: int | None = None
+    problems: list[dict] = field(default_factory=list)  # {field, message}
+    conflict: dict | None = None  # {latest, changed_fields, by, at}
+
+
+def save_fact_table(actor: str, op_id: str, table: dict, change_note: str | None = None) -> FactTableOutcome:
+    """table: {table_name, expected_revision (None = create), fields}. Reuse op_id when retrying."""
+    expected = table.get("expected_revision")
+    name = fact_table_name(table.get("table_name"))
+    fields = _clean(_pick(table.get("fields") or {}, FACT_EDITABLE))
+    fields["status"] = fields["status"] or "active"
+    problems = []
+    if name is None:
+        problems.append({"field": "table_name", "message": "Use the full name: AC.SCHEMA.TABLE."})
+    if fields["status"] not in ("active", "retired"):
+        problems.append({"field": "status", "message": "Status is active or retired."})
+    if problems:
+        return FactTableOutcome("invalid", "Nothing was saved: " + " ".join(p["message"] for p in problems),
+                                name, problems=problems)
+    try:
+        res = repo.save_fact_table(op_id, actor, {"table_name": name, "expected_revision": expected,
+                                                  "fields": fields}, change_note)
+        if res["outcome"] == "exists":
+            return FactTableOutcome("invalid", f"{name} is already registered — open it instead.", name,
+                                    problems=[{"field": "table_name", "message": "Already registered."}])
+        if res["outcome"] == "conflict":
+            entry = _conflict_entry("table", name, expected, repo.get_fact_table(name),
+                                    "fact_table_core", FACT_LABELS)
+            return FactTableOutcome("conflict", f"Nothing was saved: {entry['by'] or 'someone'} changed {name} "
+                                    f"({', '.join(entry['changed_fields']) or 'nothing visible'}) while you "
+                                    "were editing. Your edits are still in the draft.", name, conflict=entry)
+        if res["outcome"] == "replayed":
+            landed = repo.get_fact_table(name)
+            return FactTableOutcome("saved", "Saved.", name, landed and landed["REVISION_NO"])
+    except ConnectionQuarantined as exc:
+        return FactTableOutcome("failed", f"Not saved: {exc} Your draft is kept.", name)
+    except Exception:
+        log.exception("Fact table save failed: %s, op %s", name, op_id)
+        return FactTableOutcome("failed", "Save could not be confirmed. Your draft is kept; "
+                                "saving again is safe.", name)
+    if res["outcome"] == "no_change":
+        return FactTableOutcome("no_change", "No changes to save.", name, expected)
+    return FactTableOutcome("saved", "Saved.", name, res["revision_no"])
 
 
 def _conflict_message(latest: dict, changed: list[str]) -> str:
