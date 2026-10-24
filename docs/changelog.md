@@ -22,14 +22,13 @@ but no commit was noted.
 
 ## In flight (branches not merged to main) — snapshot 2026-10-23
 
-Merged to main 2026-10-23: hybrid-tables (includes unified-metric), implementations, fact-tables, REL-08-m1-hardening, ux-quick-fixes (deploy still unrecorded), PLAT-08-astra-review (includes PLAT-07; its branch can be deleted).
+Merged to main 2026-10-23: next-steps, left-panel, hybrid-tables (includes unified-metric), implementations, fact-tables, REL-08-m1-hardening, ux-quick-fixes (deploy still unrecorded), PLAT-08-astra-review (includes PLAT-07; its branch can be deleted).
 
 Refresh when you merge to main or push a new branch. Live list:
 `git fetch && git branch -r --no-merged origin/main`.
 
 | Branch | What it does | Refs | State |
 |---|---|---|---|
-| claude/next-steps | Next steps packet: lane status, decisions, merge/ship order, open calls (docs only) | DEC-018..025 | Pushed for #chris sign-off, then one Astra review |
 | claude/sql-on-page | PI backend (create/edit/retire, run status); Streamlit SQL card dropped per DEC-018 | UX-01, UX-02, DEC-019 | Built on ux-quick-fixes |
 | claude/sql-on-page-streamlit-ui | Same PI backend plus Streamlit PI cards | UX-01, UX-02 | Likely superseded while Streamlit stays frozen (DEC-018) |
 | claude/spcs-spike | React + FastAPI on SPCS; whole-page Edit with PIs; optimistic save; hybrid-table benchmark (2.7 s → 1.0 s) | DEC-018, FE-01, HYBRID_BENCH.md | Live spike; includes save-proc |
