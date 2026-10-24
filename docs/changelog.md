@@ -27,6 +27,7 @@ Refresh when you merge to main or push a new branch. Live list:
 
 | Branch | What it does | Refs | State |
 |---|---|---|---|
+| claude/implementations | React PI section: live PIs load/save, oldest = default, labels with 2+, real read-only Run check (needs sql/007 by CoCo) | UX-02, CHECK-01, DEC-022 | Pushed; not merged; not deployed |
 | claude/sql-on-page | PI backend (create/edit/retire, run status); Streamlit SQL card dropped per DEC-018 | UX-01, UX-02, DEC-019 | Built on ux-quick-fixes |
 | claude/sql-on-page-streamlit-ui | Same PI backend plus Streamlit PI cards | UX-01, UX-02 | Likely superseded while Streamlit stays frozen (DEC-018) |
 | claude/spcs-spike | React + FastAPI on SPCS; whole-page Edit with PIs; optimistic save; hybrid-table benchmark (2.7 s → 1.0 s) | DEC-018, FE-01, HYBRID_BENCH.md | Live spike; includes save-proc |

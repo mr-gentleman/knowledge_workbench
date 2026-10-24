@@ -19,3 +19,6 @@ export const getCandidate = id => call('GET', `/api/candidates/${id}`);
 // docs/plans/metric-save-contract.md (DEC-020): one call for the whole page. The spike sends no calcs yet.
 // body = { op_id, candidate, calcs }; resend the same op_id on Retry so a save that landed reports replayed.
 export const saveMetric = body => call('POST', '/api/metrics/save', body, 30000);
+export const reservePi = () => call('POST', '/api/pis/reserve');
+// Runs a saved PI's SQL read-only on Snowflake and records the result on that revision (server timeout 30 s).
+export const checkPi = (id, revision_no) => call('POST', `/api/pis/${id}/check`, { revision_no }, 45000);

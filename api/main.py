@@ -13,6 +13,7 @@ import app.db
 from api import spcs
 
 app.db.session = spcs.session  # the one seam: everything below db.locked_session is reused as-is
+app.db.check_connection = spcs.check_connection  # SQL checks only (DEC-022)
 
 from app import repositories as repo, services  # noqa: E402  (after the session swap)
 
@@ -32,6 +33,10 @@ class CandidateDraft(BaseModel):
     expected_revision: int | None = None
     create_token: str | None = None
     fields: CandidateFields
+
+
+class CheckRequest(BaseModel):
+    revision_no: int  # the revision the page shows; a check never stamps a different one
 
 
 class MetricSave(BaseModel):
@@ -64,7 +69,19 @@ def get_candidate(candidate_id: int):
     row = repo.get_candidate(candidate_id)
     if row is None:
         raise HTTPException(404, f"Candidate #{candidate_id} not found.")
-    return row
+    return {**row, "CALCS": repo.list_calcs_for_candidate(candidate_id)}
+
+
+@api.post("/api/pis/reserve")
+def reserve_pi(request: Request):
+    """A new PI's id, taken before its first save so the id is that create's retry key (DEC-019)."""
+    spcs.viewer(request)
+    return {"calc_id": repo.reserve_calc_id()}
+
+
+@api.post("/api/pis/{calc_id}/check")
+def check_pi(calc_id: int, body: CheckRequest, request: Request):
+    return asdict(services.check_calc(spcs.viewer(request), calc_id, body.revision_no))
 
 
 @api.post("/api/metrics/save")

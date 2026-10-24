@@ -52,6 +52,81 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.post(**{spcs.USER_HEADER: "CLENZINI"}).json()["status"], "no_change")
 
 
+CALC = {"CALC_ID": 5, "STATUS": "active", "REVISION_NO": 3, "SQL_TEXT": "SELECT 1 AS one;\n"}
+USER = {spcs.USER_HEADER: "CLENZINI"}
+
+
+class FakeCursor:
+    def __init__(self, columns, rows, error=None):
+        self.description, self.rows, self.error, self.sfqid = [(c,) for c in columns], rows, error, "q1"
+        self.executed = []
+
+    def execute(self, sql, params):
+        self.executed.append(params)
+        if self.error:
+            raise self.error
+
+    def fetchall(self):
+        return self.rows
+
+
+class CheckTest(unittest.TestCase):
+    """POST /api/pis/{id}/check: runs the saved SQL read-only and stamps only the revision it ran."""
+
+    def setUp(self):
+        self.client = TestClient(main.api)
+        mock.patch.object(spcs, "IN_SPCS", True).start()
+        self.get = mock.patch.object(main.repo, "get_calc", return_value=dict(CALC)).start()
+        self.record = mock.patch.object(main.repo, "record_check", return_value=True).start()
+        self.cursor = FakeCursor(["ONE"], [(1,)])
+        conn = mock.MagicMock()
+        conn.__enter__.return_value.cursor.return_value = self.cursor
+        self.connect = mock.patch.object(main.app.db, "check_connection", return_value=conn).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def check(self, rev=3, **headers):
+        return self.client.post("/api/pis/5/check", json={"revision_no": rev}, headers=headers or USER)
+
+    def test_pass_runs_saved_sql_and_stamps_that_revision(self):
+        out = self.check().json()
+        self.assertEqual((out["status"], out["message"], out["rows"]), ("passed", "✓ Runs · rev 3", [["1"]]))
+        self.assertEqual(self.cursor.executed, [["SELECT 1 AS one", 100]])  # stored SQL, trailing ; dropped
+        self.assertEqual(self.record.call_args.args[:3], (5, 3, True))
+
+    def test_sql_error_is_a_failed_check_with_snowflake_message(self):
+        self.cursor.description, self.cursor.rows = [("KW_CHECK",), ("CODE",), ("MESSAGE",)], \
+            [("KW_CHECK_FAILED", 2003, "Object 'X' does not exist")]
+        out = self.check().json()
+        self.assertEqual((out["status"], out["error"]), ("failed", "Object 'X' does not exist"))
+        self.assertEqual(self.record.call_args.args[:4], (5, 3, False, "Object 'X' does not exist"))
+
+    def test_timeout_is_a_failed_check(self):
+        self.cursor.error = main.repo.ProgrammingError("canceled", errno=630)
+        self.assertEqual(self.check().json()["error"], "Stopped after 30 s.")
+
+    def test_check_that_cannot_run_records_nothing(self):
+        self.cursor.error = main.repo.ProgrammingError("Unknown procedure RUN_CHECK", errno=2140)
+        self.assertEqual(self.check().json()["status"], "unavailable")
+        self.record.assert_not_called()
+
+    def test_stale_revision_never_runs(self):
+        self.assertEqual(self.check(rev=2).json()["status"], "moved")
+        self.connect.assert_not_called()
+
+    def test_result_landing_after_a_newer_save_is_not_claimed(self):
+        self.record.return_value = False
+        self.assertEqual(self.check().json()["status"], "moved")
+
+    def test_check_needs_identity(self):
+        self.assertEqual(self.client.post("/api/pis/5/check", json={"revision_no": 3}).status_code, 401)
+        self.connect.assert_not_called()
+
+    def test_open_candidate_includes_its_active_pis(self):
+        with mock.patch.object(main.repo, "get_candidate", return_value={"CANDIDATE_ID": 7}), \
+             mock.patch.object(main.repo, "list_calcs_for_candidate", return_value=[CALC]):
+            self.assertEqual(self.client.get("/api/candidates/7").json()["CALCS"][0]["CALC_ID"], 5)
+
+
 class ConnectionTest(unittest.TestCase):
     def test_spcs_connection_binds_qmark(self):
         with mock.patch.object(spcs.snowflake.connector, "connect") as connect, \

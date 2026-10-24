@@ -5,8 +5,9 @@ import FactTables from './FactTables.jsx';
 import PiSection from './PiSection.jsx';
 import SearchBox, { matches } from './SearchBox.jsx';
 import { SAMPLE_CANON } from './sample.js';
-import { getCandidate, getMe, listCandidates } from './api.js';
+import { checkPi, getCandidate, getMe, listCandidates, reservePi } from './api.js';
 import { readStored, saveBody, useMetricSave } from './metricSave.js';
+import { fromCalc, piChanged, runState } from './pis.js';
 
 const DEPT_LABEL = d => (d ? d[0].toUpperCase() + d.slice(1) : 'Unassigned');
 
@@ -117,8 +118,12 @@ export default function App() {
   if (m && orig) {
     if (['name', 'category', 'description', 'disambig'].some(k => m[k] !== orig[k])) dirty.push('definition');
     m.pis.forEach((p, i) => {
-      const o = orig.pis.find(x => x.id === p.id);
-      if (!o || o.sql !== p.sql || o.table !== p.table || o.disambig !== p.disambig || o.isDefault !== p.isDefault)
+      if (
+        piChanged(
+          p,
+          orig.pis.find(x => x.id === p.id),
+        )
+      )
         dirty.push('implementation ' + (i + 1));
     });
     const removed = orig.pis.filter(o => !m.pis.some(p => p.id === o.id)).length;
@@ -136,9 +141,11 @@ export default function App() {
     if (!t.live || pending[k]) return; // a refresh would overwrite the unconfirmed draft
     getCandidate(t.cid)
       .then(({ data: r, ms }) => {
-        const nm = { ...fromRow(r), description: r.DESCRIPTION || '', disambig: r.DISAMBIG || '', loaded: true, loadMs: ms };
+        const pis = r.CALCS.map(fromCalc);
+        const nm = { ...fromRow(r), description: r.DESCRIPTION || '', disambig: r.DISAMBIG || '', pis, loaded: true, loadMs: ms };
         setData(d => replace(d, nm));
         setSaved(s => replace(s, nm));
+        setOpenPi(pis[0]?.id ?? null);
       })
       .catch(e => setError(`Couldn't load ${t.id}: ${e.message}`));
   };
@@ -163,6 +170,19 @@ export default function App() {
     setEditing(true);
     setError('');
   };
+  // A check's result is stamped on the saved PI, not the draft: it lands in both, so Cancel keeps it.
+  const runCheck = async (key, id, rev) => {
+    const { data: out } = await checkPi(id, rev);
+    if (out.status === 'passed' || out.status === 'failed') {
+      const stamp = x =>
+        x.key !== key
+          ? x
+          : { ...x, pis: x.pis.map(p => (p.id === id ? { ...p, validatedRev: rev, check: out.status, checkMsg: out.error || '' } : p)) };
+      setData(d => d.map(stamp));
+      setSaved(s => s.map(stamp));
+    }
+    return out;
+  };
   const cancel = () => {
     setData(d => d.map(x => (x.key === sel ? orig : x)));
     setEditing(false);
@@ -172,12 +192,18 @@ export default function App() {
   const missing =
     m && m.kind === 'cand'
       ? [
-          !m.pis.length && 'at least one implementation that passes validation',
-          m.pis.length && !m.pis.some(p => p.status === 'ok') && 'a passing implementation',
+          !m.pis.length && 'at least one implementation whose SQL runs',
+          m.pis.length &&
+            !m.pis.some(
+              p =>
+                runState(
+                  p,
+                  orig.pis.find(o => o.id === p.id),
+                ).tone === 'ok',
+            ) &&
+            'an implementation whose SQL runs',
         ].filter(Boolean)
       : [];
-  // PIs on live candidates aren't wired in the spike — editing them would look saved when it isn't.
-  const piDirtyLive = m?.live && dirty.some(d => d.startsWith('implementation'));
 
   return (
     <div className="app">
@@ -315,16 +341,23 @@ export default function App() {
 
               <DefinitionSection m={m} editing={editing} setM={setM} changed={changed} />
 
-              <PiSection m={m} orig={orig} editing={editing} setM={setM} openPi={openPi} setOpenPi={setOpenPi} />
+              <PiSection
+                m={m}
+                orig={orig}
+                editing={editing}
+                setM={setM}
+                openPi={openPi}
+                setOpenPi={setOpenPi}
+                newPiId={m.live ? () => reservePi().then(r => r.data.calc_id) : async () => Date.now()}
+                check={m.live ? (id, rev) => runCheck(m.key, id, rev) : null}
+              />
             </div>
           )
         )}
         {nav === 'metrics' && m && editing && (
           <div className="savebar">
             <span className="what">
-              {piDirtyLive ? (
-                'The spike UI saves only the definition of a live candidate; the API accepts implementations, but this page does not send them yet.'
-              ) : dirty.length ? (
+              {dirty.length ? (
                 <>
                   Editing · unsaved changes in <b>{dirty.join(', ')}</b>
                 </>
@@ -335,7 +368,7 @@ export default function App() {
             <button className="btn ghost" onClick={cancel}>
               Cancel
             </button>
-            <button className="btn primary" onClick={save} disabled={piDirtyLive}>
+            <button className="btn primary" onClick={save}>
               Save changes
             </button>
           </div>

@@ -2,6 +2,7 @@
 // The page shows the submitted values at once; "Saved" appears only after the server commits.
 import { useEffect, useState } from 'react';
 import { saveMetric } from './api.js';
+import { calcsBody } from './pis.js';
 
 // Unconfirmed saves survive a closed tab: { [key]: { snap, body } } until the server confirms.
 const PENDING = 'kw.pendingSaves';
@@ -31,17 +32,19 @@ export const saveBody = (m, orig) => ({
     expected_revision: orig.rev,
     fields: { full_name: m.name, description: m.description, disambig: m.disambig, department: m.deptRaw, category: m.category },
   },
-  calcs: [],
+  calcs: calcsBody(m.pis, orig.pis),
 });
 
 // What a server reply means for the submitted snapshot `snap`.
 // → { failed: 'conflict' | 'failed', msg }   nothing was written (or unknown); keep the draft
 // → { saved: metric, wrote }                 committed; wrote = false for a no-op save
 export function outcome(out, snap, user) {
-  if (out.status === 'conflict' || out.status === 'invalid') return { failed: 'conflict', msg: `${snap.name}: ${out.message}` };
+  if (out.status === 'conflict' || out.status === 'invalid')
+    return { failed: 'conflict', msg: [`${snap.name}: ${out.message}`, ...(out.problems || []).map(p => p.message)].join(' ') };
   if (out.status === 'failed') return { failed: 'failed', msg: `Couldn't save ${snap.name}. Your edits are kept. ${out.message}` };
   const wrote = out.status === 'saved' || out.status === 'replayed';
-  return { saved: { ...snap, rev: out.candidate_revision, updatedBy: wrote ? user : snap.updatedBy }, wrote };
+  const pis = snap.pis.map(p => ({ ...p, rev: out.calc_revisions?.[p.id] ?? p.rev }));
+  return { saved: { ...snap, pis, rev: out.candidate_revision, updatedBy: wrote ? user : snap.updatedBy }, wrote };
 }
 
 const without = (o, key) => {

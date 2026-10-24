@@ -73,16 +73,16 @@ export const COLS = {
   nps_accountid_best_match: ['cdate', 'accountid', 'score'],
 };
 
-export const pi = (id, table, sql, o = {}) => ({
+const pi = (id, table, sql, o = {}) => ({
   id,
   table,
   sql,
   disambig: '',
-  isDefault: true,
   validatedRev: 3,
   rev: 3,
   served: 3,
-  status: 'ok',
+  check: 'passed',
+  checkMsg: '',
   source: 'auto-gen',
   ...o,
 });
@@ -111,12 +111,10 @@ export const SAMPLE_CANON = [
         source: 'sme',
       }),
       pi(2, 'AC.conformed_dimensions.cohort_account_daily_consolidation', NRR_DAILY, {
-        isDefault: false,
         disambig: 'Intra-month pacing only. Not annualized; never compare to the monthly number.',
         validatedRev: 1,
         rev: 2,
         served: 1,
-        status: 'stale',
         source: 'sme',
       }),
     ],
