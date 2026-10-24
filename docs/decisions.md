@@ -287,7 +287,7 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   not gain read on AC, and SME SQL is arbitrary text.
 - Decision:
   - `AI_PLATFORM.WORKBENCH.run_check(sql, max_rows)` is `EXECUTE AS OWNER`, owned by
-    `WORKBENCH_SQLCHECK`, which has only USAGE/SELECT on database AC. It wraps the SQL as
+    `WORKBENCH_SQLCHECK`, which reads by inheriting `BI_RO` (no DML grants anywhere; per-table AC grants were too slow — #chris 2026-10-23). If BI_RO ever gains write privileges, so does the check: re-check its grants when it changes. It wraps the SQL as
     `SELECT * FROM (<sql>) LIMIT n`, so non-queries are syntax errors and writes fail on privileges.
     SQL errors come back as a `KW_CHECK_FAILED` row; WORKBENCH_APP gets USAGE on the procedure only.
   - The check runs the PI's SQL as stored at the requested revision, never text from the page, and
