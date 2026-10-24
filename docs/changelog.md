@@ -38,3 +38,5 @@ Refresh when you merge to main or push a new branch. Live list:
 | claude/ux-exemplars | UX pattern library P1–P28 from outside sites | — | Docs only; built on product-focus |
 | claude/comparison-slice, codex/frontend-independent-plan | Streamlit vs React comparison; authoring MVP; frontend portability | — | Docs only |
 | codex/access-test-2026-10-21 | Work-configuration access test note | — | Docs only; likely stale |
+
+| codex/engineering-review-2026-10-23 | Core engineering review at 99a6068; grades, evidence and prioritized fixes | REV-01..08; PLAT-12 | Documentation only; no runtime fixes. Existing main Python CI is red. |
