@@ -1,5 +1,6 @@
 """Workflows + invariants. Pages call these; these call repositories."""
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 
@@ -134,6 +135,8 @@ class CheckOutcome:
 
 
 CHECK_PREVIEW_ROWS = 20
+# Final semicolons and anything after them that is only whitespace or comments; run_check wraps the SQL.
+_TRAILING_END = re.compile(r"(;|\s|--[^\n]*|/\*.*?\*/)*$", re.S)
 
 
 def check_calc(actor: str, calc_id: int, revision_no: int) -> CheckOutcome:
@@ -143,7 +146,7 @@ def check_calc(actor: str, calc_id: int, revision_no: int) -> CheckOutcome:
     if calc is None or calc["STATUS"] != "active" or calc["REVISION_NO"] != revision_no:
         return CheckOutcome("moved", "This implementation changed since you opened it. Reload to check "
                             "the latest version.", revision_no)
-    sql = (calc["SQL_TEXT"] or "").strip().rstrip(";").rstrip()
+    sql = _TRAILING_END.sub("", calc["SQL_TEXT"] or "").strip()
     try:
         res = repo.run_check(sql) if sql else {"ok": False, "ms": 0, "columns": [], "rows": [],
                                                  "query_id": None, "error": "There is no SQL to run."}
