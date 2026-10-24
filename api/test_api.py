@@ -4,6 +4,7 @@ import unittest
 from unittest import mock
 
 from fastapi.testclient import TestClient
+from snowflake.snowpark import Row
 
 from api import main, spcs
 
@@ -50,6 +51,28 @@ class ApiTest(unittest.TestCase):
     def test_no_change_passes_through(self):
         self.save.return_value = {"outcome": "no_change", "metric_id": 7, "metric_revision": 3}
         self.assertEqual(self.post(**{spcs.USER_HEADER: "CLENZINI"}).json()["status"], "no_change")
+
+
+class FactTablesTest(unittest.TestCase):
+    def test_list_has_lower_case_keys(self):
+        rows = [Row(TABLE_NAME="AC.FINANCE.MRR", GRAIN="one row per account per day", STATUS="active")]
+        with mock.patch.object(main.repo, "list_fact_tables", return_value=rows):
+            r = TestClient(main.api).get("/api/fact-tables")
+        self.assertEqual(r.json(), [{"table_name": "AC.FINANCE.MRR", "grain": "one row per account per day",
+                                     "status": "active"}])
+
+    def test_save_is_attributed_to_header_user_and_conflict_rows_are_lower_case(self):
+        latest = {**{k.upper(): None for k in main.services.FACT_EDITABLE},
+                  "TABLE_NAME_FULL": "AC.FINANCE.MRR", "GRAIN": "daily", "REVISION_NO": 2, "UPDATED_BY": "ALICE"}
+        with mock.patch.object(spcs, "IN_SPCS", True), \
+             mock.patch.object(main.repo, "save_fact_table", return_value={"outcome": "conflict"}) as call, \
+             mock.patch.object(main.repo, "get_fact_table", return_value=latest), \
+             mock.patch.object(main.repo, "snapshot_at", return_value=None):
+            r = TestClient(main.api).post("/api/fact-tables/save", headers={spcs.USER_HEADER: "CLENZINI"},
+                                          json={"table": {"table_name": "AC.FINANCE.MRR", "expected_revision": 1,
+                                                          "fields": {"grain": "weekly"}}})
+        self.assertEqual(call.call_args.args[1], "CLENZINI")
+        self.assertEqual((r.json()["status"], r.json()["conflict"]["latest"]["grain"]), ("conflict", "daily"))
 
 
 CALC = {"CALC_ID": 5, "STATUS": "active", "REVISION_NO": 3, "SQL_TEXT": "SELECT 1 AS one -- n\n;\n-- done\n/* x */ ;\n"}

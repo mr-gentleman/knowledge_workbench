@@ -143,7 +143,8 @@ rollback is needed for speed alone. The nightly copy keeps working either way.
 
 ```sql
 REVOKE CREATE TABLE, CREATE HYBRID TABLE ON SCHEMA AI_PLATFORM.WORKBENCH FROM ROLE WORKBENCH_APP;   -- the bench grant
-DROP PROCEDURE IF EXISTS AI_PLATFORM.WORKBENCH.save_metric(VARCHAR);   -- superseded by the Python save (DEC-025)
+DROP PROCEDURE IF EXISTS AI_PLATFORM.WORKBENCH.save_metric(VARCHAR);       -- superseded by the Python save (DEC-025)
+DROP PROCEDURE IF EXISTS AI_PLATFORM.WORKBENCH.save_fact_table(VARCHAR);   -- likewise (PLAT-11)
 -- After a week of normal use (they are standard tables, so UNDROP still works for the retention period):
 DROP TABLE AI_PLATFORM.WORKBENCH.metric_std010;
 DROP TABLE AI_PLATFORM.WORKBENCH.metric_calc_std010;
@@ -152,9 +153,8 @@ DROP TABLE AI_PLATFORM.WORKBENCH.op_log_std010;
 DROP TABLE AI_PLATFORM.WORKBENCH.fact_table_core_std010;
 ```
 
-`save_fact_table` (sql/005, branch claude/fact-tables) is unaffected. It still writes `fact_table_core`,
-`revision` and `op_log` through its own procedure; its INSERTs name their columns, so `log_id` fills itself.
-It gets the hybrid speed-up for its writes, but keeps the procedure overhead.
+`save_fact_table` moved to a Python transaction too (PLAT-11, #chris: one pattern for every user-saved
+table), so after the deploy that ships it nothing calls either procedure.
 
 ## Known gaps
 

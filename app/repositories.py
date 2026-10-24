@@ -70,6 +70,28 @@ def reserve_calc_id() -> int:
     return query(f"SELECT {SCHEMA}.seq_calc_id.NEXTVAL")[0][0]
 
 
+# ── fact tables (fact_table_core) ───────────────────────────────────────────
+
+FACT_TABLE_LIMIT = 500  # the whole registry (61 legacy tables); revisit if it outgrows this
+
+
+def list_fact_tables():
+    """Every fact table, active first, by name. table_name is the 3-part AC.SCHEMA.TABLE key."""
+    return query(
+        f"""SELECT table_name_full AS table_name, display_name, description, disambig, gotchas,
+                   required_filter, grain, primary_key, time_dimension, department, source, status,
+                   original_author, revision_no, updated_by, updated_at
+            FROM {SCHEMA}.fact_table_core
+            ORDER BY status = 'active' DESC, table_name_full
+            LIMIT {FACT_TABLE_LIMIT}"""
+    )
+
+
+def get_fact_table(table_name: str):
+    rows = query(f"SELECT * FROM {SCHEMA}.fact_table_core WHERE table_name_full = ?", [table_name])
+    return rows[0].as_dict() if rows else None
+
+
 # ── SQL checks (sql/007, DEC-022) ───────────────────────────────────────────
 
 CHECK_MAX_ROWS = 100
@@ -112,9 +134,9 @@ def record_check(calc_id: int, revision_no: int, passed: bool, message: str | No
 
 # ── the one write path ──────────────────────────────────────────────────────
 
-_T = {n: f"{SCHEMA}.{n}" for n in ("metric", "metric_calc", "revision", "op_log")}
+_T = {n: f"{SCHEMA}.{n}" for n in ("metric", "metric_calc", "fact_table_core", "revision", "op_log")}
 _OP_LOG = (f"INSERT INTO {_T['op_log']} (op_id, op, actor, record_id, outcome, lock_wait_ms, duration_ms, "
-           "last_query_id) SELECT ?, 'metric.save', ?, ?, ?, ?, ?, LAST_QUERY_ID()")
+           "last_query_id) SELECT ?, ?, ?, ?, ?, ?, ?, LAST_QUERY_ID()")
 # Request PIs as rows (one JSON parameter, so any number of PIs costs the same statements).
 _REQ_CALCS = """(SELECT value:calc_id::NUMBER AS id, value:expected_revision::NUMBER AS exp_rev,
                         COALESCE(value:retire::BOOLEAN, FALSE) AS retire, COALESCE(value:is_default::BOOLEAN, FALSE) AS is_default,
@@ -135,33 +157,45 @@ def save_metric(op_id: str, actor: str, metric: dict, calcs: list[dict],
     Returns {outcome: committed | no_change | conflict | replayed, metric_id, metric_revision,
     changed_calcs, new_calcs, checks_due, collisions: [{KIND (candidate | canon), ID, FULL_NAME}]
     (None = the lookup failed)}. Same contract and rules as sql/009's procedure, which it replaces.
-    Reuse op_id when retrying the same draft: a save that landed is then 'replayed'.
+    Reuse op_id when retrying the same draft: a save that landed is then 'replayed'."""
+    return _transaction("metric.save", op_id, actor, metric.get("id"), lambda run, log_op, timing: _save(
+        run, log_op, op_id, actor, metric, calcs, change_note, check_name, timing))
+
+
+def save_fact_table(op_id: str, actor: str, table: dict, change_note: str | None = None) -> dict:
+    """Creates or edits one fact table in one transaction (DEC-025; same rules as sql/005's procedure,
+    which it replaces). table: {table_name, expected_revision (None = create), fields}. The key is never
+    changed here. Returns {outcome: committed | no_change | conflict | exists | replayed, table_name,
+    revision_no}."""
+    return _transaction("fact_table.save", op_id, actor, table["table_name"], lambda run, log_op, timing:
+                        _save_fact_table(run, log_op, op_id, actor, table, change_note, timing))
+
+
+def _transaction(op: str, op_id: str, actor: str, record_id, body) -> dict:
+    """Runs body(run, log_op, timing) on the locked session; every save goes through here.
     The transaction lives only inside this call. Any failure marks the connection dirty, so DEC-008's
     heal rolls back and proves it clean before the next operation (a commit may or may not have landed)."""
     started, outcome = time.monotonic(), "uncertain"
-    tag = json.dumps({"op_id": op_id, "op": "metric.save", "actor": actor,
-                      "record_id": metric.get("id")}, sort_keys=True)
+    tag = json.dumps({"op_id": op_id, "op": op, "actor": actor, "record_id": record_id}, sort_keys=True)
     with locked_session() as s:
         lock_wait_ms = _ms(started)
 
         def run(sql, params=()):
             return s.sql(sql, params=list(params)).collect(statement_params={"QUERY_TAG": tag})
 
-        def log_op(result, record_id):  # outside a transaction: autocommits on its own
-            run(_OP_LOG, [op_id, actor, None if record_id is None else str(record_id), result,
-                          lock_wait_ms, _ms(started)])
+        def log_op(result, rid):  # outside a transaction: autocommits on its own
+            run(_OP_LOG, [op_id, op, actor, None if rid is None else str(rid), result, lock_wait_ms, _ms(started)])
 
         try:
-            res = _save(run, log_op, op_id, actor, metric, calcs, change_note, check_name,
-                        lambda: (lock_wait_ms, _ms(started)))
+            res = body(run, log_op, lambda: (lock_wait_ms, _ms(started)))
             outcome = res["outcome"]
             return res
         except BaseException:
             mark_dirty()
             raise
         finally:
-            log.info("op %s metric.save %s record=%s %s wait=%sms total=%sms",
-                     op_id, actor, metric.get("id"), outcome, lock_wait_ms, _ms(started))
+            log.info("op %s %s %s record=%s %s wait=%sms total=%sms",
+                     op_id, op, actor, record_id, outcome, lock_wait_ms, _ms(started))
 
 
 def _save(run, log_op, op_id, actor, metric, calcs, change_note, check_name, timing) -> dict:
@@ -294,6 +328,71 @@ def _save(run, log_op, op_id, actor, metric, calcs, change_note, check_name, tim
         return {"outcome": "conflict", "metric_id": mid}
     return {"outcome": "committed", "metric_id": mid, "metric_revision": 1 if creating else exp + metric_changed,
             "changed_calcs": changed, "new_calcs": new, "checks_due": checks, "collisions": hits}
+
+
+_FACT_FIELDS = ("display_name", "description", "disambig", "gotchas", "required_filter", "grain",
+                "primary_key", "time_dimension", "department", "status")
+
+
+def _save_fact_table(run, log_op, op_id, actor, table, change_note, timing) -> dict:
+    name, exp = table["table_name"], table.get("expected_revision")
+    creating, fields = exp is None, _nulls(table["fields"])
+    values = [fields.get(k) for k in _FACT_FIELDS]
+
+    # 1. Replay marker and the row as stored (any revision for a create; the expected one for an edit).
+    replayed, found, *stored = run(
+        f"""SELECT (SELECT COUNT(*) FROM {_T['op_log']} WHERE op_id = ? AND outcome = 'committed') > 0,
+                   f.table_name_full IS NOT NULL, {', '.join('f.' + k for k in _FACT_FIELDS)}
+            FROM (SELECT 1) d
+            LEFT JOIN {_T['fact_table_core']} f ON f.table_name_full = ? AND (? OR f.revision_no = ?)""",
+        [op_id, name, creating, exp])[0]
+    if replayed:
+        log_op("replayed", name)
+        return {"outcome": "replayed", "table_name": name}
+    if found == creating:  # create of a registered name, or the row isn't at the expected revision
+        log_op("conflict", name)
+        return {"outcome": "exists" if creating else "conflict", "table_name": name}
+    if not creating and _blank(stored) == tuple(values):
+        log_op("no_change", name)
+        return {"outcome": "no_change", "table_name": name, "revision_no": exp}
+    retiring = stored[-1] == "active" and fields.get("status") == "retired"
+
+    # 2. One conditional write, then history + the committed op_log row in one statement.
+    run("BEGIN")
+    try:
+        if creating:
+            written = run(
+                f"""INSERT INTO {_T['fact_table_core']} (table_name_full, {', '.join(_FACT_FIELDS)}, source,
+                        original_author, created_by, updated_by)
+                    SELECT ?, {', '.join('?' * len(_FACT_FIELDS))}, 'sme', ?, ?, ?
+                    WHERE NOT EXISTS (SELECT 1 FROM {_T['fact_table_core']} WHERE table_name_full = ?)""",
+                [name, *values, actor, actor, actor, name])
+        else:
+            written = run(
+                f"""UPDATE {_T['fact_table_core']}
+                    SET {', '.join(k + ' = ?' for k in _FACT_FIELDS)},
+                        revision_no = revision_no + 1, updated_by = ?, updated_at = CURRENT_TIMESTAMP()
+                    WHERE table_name_full = ? AND revision_no = ?""",
+                [*values, actor, name, exp])
+        if written[0][0] != 1:
+            raise _LostRace
+        lock_wait_ms, elapsed_ms = timing()
+        run(f"""INSERT ALL
+                  INTO {_T['revision']} (record_type, record_id, revision_no, action, snapshot, schema_version,
+                                         actor, change_note)
+                    VALUES ('fact_table_core', table_name_full, revision_no, ?, snap, ?, ?, ?)
+                  INTO {_T['op_log']} (op_id, op, actor, record_id, outcome, lock_wait_ms, duration_ms, last_query_id)
+                    VALUES (?, 'fact_table.save', ?, table_name_full, 'committed', ?, ?, LAST_QUERY_ID())
+                SELECT table_name_full, revision_no, OBJECT_CONSTRUCT_KEEP_NULL(*) AS snap
+                FROM {_T['fact_table_core']} WHERE table_name_full = ?""",
+            ["create" if creating else "retire" if retiring else "edit", SNAPSHOT_VERSION, actor, change_note,
+             op_id, actor, lock_wait_ms, elapsed_ms, name])
+        run("COMMIT")
+    except _LostRace:  # another save landed between the check and the write
+        run("ROLLBACK")
+        log_op("conflict", name)
+        return {"outcome": "exists" if creating else "conflict", "table_name": name}
+    return {"outcome": "committed", "table_name": name, "revision_no": 1 if creating else exp + 1}
 
 
 _METRIC_FIELDS = ("full_name", "description", "disambig", "department", "category")
