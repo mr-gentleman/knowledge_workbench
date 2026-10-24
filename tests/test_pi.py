@@ -1,24 +1,20 @@
 """Metric page save (DEC-020): the contract's acceptance list, driven through services.save_metric.
 
-The procedure (sql/004) can't run locally. Store below is an in-memory stand-in with the same
-contract (outcomes, all-or-nothing, replay markers); the SQL itself gets source checks and the live
-smoke test in docs/save-proc-handoff.md.
+Store below is an in-memory stand-in for repo.save_metric with the same contract (outcomes,
+all-or-nothing, replay markers). The transaction itself is tested against a fake session in
+test_concurrency.SaveTransactionTests and live on scratch hybrid tables (docs/hybrid-migration-handoff.md).
 """
 import copy
-import re
 import unittest
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import patch
 
-from app import services
 from app import repositories as repo
-
-SQL = (Path(__file__).resolve().parents[1] / "sql/004_save_metric_proc.sql").read_text()
+from app import services
 
 
 def calc_row(calc_id, sql, disambig=None, revision=1, is_default=False, by="tester", status="active"):
-    return dict(CALC_ID=calc_id, ORIGIN_CANDIDATE_ID=1, METRIC_ID=None, SQL_TEXT=sql,
+    return dict(CALC_ID=calc_id, METRIC_ID=1, SQL_TEXT=sql,
                 SOURCE_TABLE=None, DISAMBIG=disambig, IS_DEFAULT=is_default, STATUS=status,
                 REVISION_NO=revision, VALIDATED_REVISION_NO=None, VALIDATION_STATUS=None,
                 UPDATED_BY=by, UPDATED_AT=datetime(2026, 10, 23))
@@ -28,12 +24,12 @@ class Store:
     """Rows + revisions + op_log, and save_metric with the procedure's contract."""
 
     def __init__(self):
-        self.cand = dict(CANDIDATE_ID=1, FULL_NAME="CSAT", DESCRIPTION="Satisfaction", DISAMBIG=None,
-                         DEPARTMENT=None, CATEGORY=None, STATUS="open", REVISION_NO=1,
+        self.cand = dict(METRIC_ID=1, FULL_NAME="CSAT", DESCRIPTION="Satisfaction", DISAMBIG=None,
+                         DEPARTMENT=None, CATEGORY=None, STATUS="candidate", REVISION_NO=1,
                          UPDATED_BY="tester", UPDATED_AT=datetime(2026, 10, 23))
         self.calcs = {7: calc_row(7, "SELECT 1", "daily", is_default=True),
                       8: calc_row(8, "SELECT 2", "monthly")}
-        self.revisions = [("metric_candidate", 1, 1, copy.deepcopy(self.cand))] + [
+        self.revisions = [("metric", 1, 1, copy.deepcopy(self.cand))] + [
             ("metric_calc", i, 1, copy.deepcopy(r)) for i, r in self.calcs.items()]
         self.op_log, self.lose_next_ack = [], False
 
@@ -41,7 +37,7 @@ class Store:
         if any(o == (op_id, "committed") for o in self.op_log) or any(
                 c["expected_revision"] is None and c["calc_id"] in self.calcs for c in calcs):
             self.op_log.append((op_id, "replayed"))
-            return {"outcome": "replayed", "candidate_id": 1}
+            return {"outcome": "replayed", "metric_id": 1}
         f = cand["fields"]
         cand_changed = any((self.cand[k.upper()] or None) != (f[k] or None) for k in services.EDITABLE)
         stale = cand["expected_revision"] != self.cand["REVISION_NO"] or any(
@@ -50,19 +46,19 @@ class Store:
                 or self.calcs[c["calc_id"]]["STATUS"] != "active") for c in calcs)
         if stale:
             self.op_log.append((op_id, "conflict"))
-            return {"outcome": "conflict", "candidate_id": 1}
+            return {"outcome": "conflict", "metric_id": 1}
         changed = [c["calc_id"] for c in calcs if c["expected_revision"] is not None and (
             c["retire"] or services.calc_changed(self.calcs[c["calc_id"]], c["fields"]))]
         new = [c["calc_id"] for c in calcs if c["expected_revision"] is None and not c["retire"]]
         if not (cand_changed or changed or new):
             self.op_log.append((op_id, "no_change"))
-            return {"outcome": "no_change", "candidate_id": 1, "candidate_revision": self.cand["REVISION_NO"]}
+            return {"outcome": "no_change", "metric_id": 1, "metric_revision": self.cand["REVISION_NO"]}
         checks = [c["calc_id"] for c in calcs if c["calc_id"] in new or (
             c["calc_id"] in changed and not c["retire"]
             and (self.calcs[c["calc_id"]]["SQL_TEXT"] or None) != c["fields"]["sql_text"])]
         if cand_changed:
             self.cand.update({k.upper(): v for k, v in f.items()}, REVISION_NO=self.cand["REVISION_NO"] + 1)
-            self.revisions.append(("metric_candidate", 1, self.cand["REVISION_NO"], copy.deepcopy(self.cand)))
+            self.revisions.append(("metric", 1, self.cand["REVISION_NO"], copy.deepcopy(self.cand)))
         for c in calcs:
             cid = c["calc_id"]
             if cid in changed:
@@ -82,7 +78,7 @@ class Store:
         if self.lose_next_ack:
             self.lose_next_ack = False
             raise RuntimeError("connection dropped")
-        return {"outcome": "committed", "candidate_id": 1, "candidate_revision": self.cand["REVISION_NO"],
+        return {"outcome": "committed", "metric_id": 1, "metric_revision": self.cand["REVISION_NO"],
                 "changed_calcs": changed, "new_calcs": new, "checks_due": checks, "collisions": []}
 
     def snapshot_at(self, record_type, record_id, revision_no):
@@ -95,9 +91,9 @@ class MetricSaveTests(unittest.TestCase):
         self.store = store = Store()
         patches = [
             patch.object(repo, "save_metric", side_effect=store.save_metric),
-            patch.object(repo, "list_calcs_for_candidate", side_effect=lambda cid: [
+            patch.object(repo, "list_calcs", side_effect=lambda cid: [
                 copy.deepcopy(r) for r in store.calcs.values() if r["STATUS"] == "active"]),
-            patch.object(repo, "get_candidate", side_effect=lambda cid: copy.deepcopy(store.cand)),
+            patch.object(repo, "get_metric", side_effect=lambda cid: copy.deepcopy(store.cand)),
             patch.object(repo, "get_calc", side_effect=lambda cid: copy.deepcopy(store.calcs.get(cid))),
             patch.object(repo, "snapshot_at", side_effect=store.snapshot_at),
         ]
@@ -122,9 +118,9 @@ class MetricSaveTests(unittest.TestCase):
         out = self.save([self.pi(7, "SELECT 10", "daily"), self.pi(9, "SELECT 3", "weekly", expected=None)],
                         description="Customer satisfaction")
         self.assertEqual(out.status, "saved")
-        self.assertEqual((out.candidate_revision, out.calc_revisions), (2, {7: 2, 9: 1}))
+        self.assertEqual((out.metric_revision, out.calc_revisions), (2, {7: 2, 9: 1}))
         self.assertEqual(sorted((t, i, r) for t, i, r, _ in self.revisions_after_setup()),
-                         [("metric_calc", 7, 2), ("metric_calc", 9, 1), ("metric_candidate", 1, 2)])
+                         [("metric", 1, 2), ("metric_calc", 7, 2), ("metric_calc", 9, 1)])
         self.assertEqual(self.store.calcs[8]["REVISION_NO"], 1)  # untouched PI unchanged
         self.assertFalse(self.store.calcs[9]["IS_DEFAULT"])  # 7 is still the default
         self.assertEqual(sorted(out.checks_due), [7, 9])
@@ -135,7 +131,7 @@ class MetricSaveTests(unittest.TestCase):
         self.assertEqual(self.store.calcs[8]["STATUS"], "retired")
         self.assertEqual([(t, i, r, s["STATUS"]) for t, i, r, s in self.revisions_after_setup()],
                          [("metric_calc", 8, 2, "retired")])
-        self.assertNotIn(8, [r["CALC_ID"] for r in repo.list_calcs_for_candidate(1)])  # gone from read mode
+        self.assertNotIn(8, [r["CALC_ID"] for r in repo.list_calcs(1)])  # gone from read mode
         self.assertIsNotNone(self.store.snapshot_at("metric_calc", 8, 1))  # history keeps it
         self.assertEqual(out.checks_due, [])
 
@@ -195,8 +191,8 @@ class MetricSaveTests(unittest.TestCase):
 
     def test_first_pi_of_a_metric_is_default(self):
         self.store.calcs = {}
-        with patch.object(repo, "save_metric", return_value={"outcome": "committed", "candidate_id": 1,
-                                                              "candidate_revision": 1, "new_calcs": [9]}) as save:
+        with patch.object(repo, "save_metric", return_value={"outcome": "committed", "metric_id": 1,
+                                                              "metric_revision": 1, "new_calcs": [9]}) as save:
             self.save([self.pi(9, "SELECT 3", None, expected=None)])
         self.assertTrue(save.call_args.args[3][0]["is_default"])
 
@@ -222,33 +218,6 @@ class CalcRuleTests(unittest.TestCase):
         self.assertEqual(services.validation_state(row), "✓ Runs · rev 2")
         row["REVISION_NO"] = 3
         self.assertEqual(services.validation_state(row), "Not run")
-
-
-class ProcedureSourceTests(unittest.TestCase):
-    """The DDL isn't run locally; these pin the invariants the live smoke test then exercises."""
-
-    def body(self):
-        return SQL.split("$$")[1]
-
-    def test_invariants_are_present(self):
-        for needle in ("EXECUTE AS OWNER", "c.revision_no = r.exp_rev", "revision_no = :v_cand_exp",
-                       "OBJECT_CONSTRUCT_KEEP_NULL(*)", "OBJECT_CONSTRUCT_KEEP_NULL(c.*)",
-                       "create_token = :v_token", "IFF(r.retire, 'retired', c.status)",
-                       "'conflict'", "'replayed'", "'committed'", "'no_change'", "'rolled_back'",
-                       "BEGIN TRANSACTION", "COMMIT", "ROLLBACK", "TO ROLE WORKBENCH_APP"):
-            self.assertIn(needle, SQL)
-        self.assertNotIn("CURRENT_USER", self.body())
-
-    def test_every_name_is_fully_qualified(self):
-        targets = re.findall(r"\b(?:FROM|JOIN|INTO|UPDATE)\s+([\w.]+)", self.body())
-        self.assertTrue(targets)
-        for name in targets:
-            self.assertTrue(name.startswith("AI_PLATFORM.WORKBENCH.") or name == "TABLE", name)
-
-    def test_request_keys_match_what_the_repository_sends(self):
-        for key in ("op_id", "actor", "lock_wait_ms", "schema_version", "change_note", "check_name"):
-            self.assertIn(f"req:{key}", self.body())
-        self.assertEqual(repo._SAVE_METRIC, "CALL AI_PLATFORM.WORKBENCH.save_metric(?)")
 
 
 if __name__ == "__main__":

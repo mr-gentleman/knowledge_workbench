@@ -2,6 +2,7 @@
 // The page shows the submitted values at once; "Saved" appears only after the server commits.
 import { useEffect, useState } from 'react';
 import { saveMetric } from './api.js';
+import { calcsBody } from './pis.js';
 
 // Unconfirmed saves survive a closed tab: { [key]: { snap, body } } until the server confirms.
 const PENDING = 'kw.pendingSaves';
@@ -26,22 +27,29 @@ const store = (key, v) => {
 // The request for saving draft `m` against its last saved revision. A new op_id per save; Retry reuses it.
 export const saveBody = (m, orig) => ({
   op_id: crypto.randomUUID(),
-  candidate: {
-    id: m.cid,
+  metric: {
+    id: m.mid,
     expected_revision: orig.rev,
     fields: { full_name: m.name, description: m.description, disambig: m.disambig, department: m.deptRaw, category: m.category },
   },
-  calcs: [],
+  calcs: calcsBody(m.pis, orig.pis),
 });
 
 // What a server reply means for the submitted snapshot `snap`.
 // → { failed: 'conflict' | 'failed', msg }   nothing was written (or unknown); keep the draft
 // → { saved: metric, wrote }                 committed; wrote = false for a no-op save
 export function outcome(out, snap, user) {
-  if (out.status === 'conflict' || out.status === 'invalid') return { failed: 'conflict', msg: `${snap.name}: ${out.message}` };
+  if (out.status === 'conflict' || out.status === 'invalid')
+    return { failed: 'conflict', msg: [`${snap.name}: ${out.message}`, ...(out.problems || []).map(p => p.message)].join(' ') };
   if (out.status === 'failed') return { failed: 'failed', msg: `Couldn't save ${snap.name}. Your edits are kept. ${out.message}` };
   const wrote = out.status === 'saved' || out.status === 'replayed';
-  return { saved: { ...snap, rev: out.candidate_revision, updatedBy: wrote ? user : snap.updatedBy }, wrote };
+  // A check stays valid until the SQL changes (sql/008): PIs not in checks_due carry it to their new revision.
+  const pis = snap.pis.map(p => {
+    const rev = out.calc_revisions?.[p.id] ?? p.rev;
+    const keep = p.validatedRev === p.rev && !(out.checks_due || []).includes(p.id);
+    return { ...p, rev, validatedRev: keep ? rev : p.validatedRev };
+  });
+  return { saved: { ...snap, pis, rev: out.metric_revision, updatedBy: wrote ? user : snap.updatedBy }, wrote };
 }
 
 const without = (o, key) => {
@@ -89,7 +97,7 @@ export function useMetricSave({ user, onSaved, flash }) {
     onSaved(key, snap, r.saved);
     settle(p => without(p, key));
     store(key, null);
-    if (r.wrote) setJustSaved(j => ({ ...j, [key]: { rev: out.candidate_revision, ms } }));
+    if (r.wrote) setJustSaved(j => ({ ...j, [key]: { rev: out.metric_revision, ms } }));
     else flash(`No changes · ${ms} ms`);
     if (out.warnings?.length) flash(out.warnings.join(' '));
   };

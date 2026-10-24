@@ -28,7 +28,10 @@ Refresh when you merge to main or push a new branch. Live list:
 
 | Branch | What it does | Refs | State |
 |---|---|---|---|
-| claude/left-panel | Live candidates land in their department folder (list query now returns department); ranked search over name/category/definition/SQL with highlights; `/` ⌘K ↑↓ Enter Esc; clearer status dots incl. unsaved; folder state remembered | — | Deployed to KW_SPIKE 2026-10-23 (de4516c); awaiting Chris's feedback; built on react-split |
+| claude/left-panel | Live candidates land in their department folder (list query now returns department); ranked search over name/category/definition/SQL with highlights; `/` ⌘K ↑↓ Enter Esc; clearer status dots incl. unsaved; folder state remembered | — | Built on claude/hybrid-tables (merged in 2026-10-23); not deployed since hybrid replaced it |
+| claude/hybrid-tables | Saves ~3–5× faster: write tables become hybrid tables; the save is one Python transaction again; nightly backup copy | DEC-025, PLAT-10, PLAT-06 | Pushed, not merged; built on claude/unified-metric; needs sql/009 → 010 → 011 by CoCo, then a deploy |
+| claude/unified-metric | Candidate and canon become one `metric` row with one ID; status candidate → canon / rejected / retired; `legacy_id_map` | DEC-024 | Pushed, not merged; built on claude/implementations; needs sql/009 then a deploy |
+| claude/implementations | React PI section: live PIs load/save, oldest = default, labels with 2+, real read-only Run check; a check survives label edits (needs sql/007 + 008 by CoCo) | UX-02, UX-06, CHECK-01, CHECK-06, DEC-022, DEC-023 | Pushed; not merged; not deployed |
 | claude/sql-on-page | PI backend (create/edit/retire, run status); Streamlit SQL card dropped per DEC-018 | UX-01, UX-02, DEC-019 | Built on ux-quick-fixes |
 | claude/sql-on-page-streamlit-ui | Same PI backend plus Streamlit PI cards | UX-01, UX-02 | Likely superseded while Streamlit stays frozen (DEC-018) |
 | claude/spcs-spike | React + FastAPI on SPCS; whole-page Edit with PIs; optimistic save; hybrid-table benchmark (2.7 s → 1.0 s) | DEC-018, FE-01, HYBRID_BENCH.md | Live spike; includes save-proc |

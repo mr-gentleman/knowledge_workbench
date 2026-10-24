@@ -66,6 +66,13 @@ def locked_session():
         yield s
 
 
+def check_connection(timeout_s: int):
+    """A fresh connection for one SQL check (sql/007), used outside db_lock so a slow check never
+    blocks saves; it opens no transaction and writes nothing. api/main.py provides it (DEC-022);
+    the frozen Streamlit app has none."""
+    raise NotImplementedError("SQL checks run only in the React app.")
+
+
 def viewer() -> str:
     """Who is acting. Never taken from a form field, never CURRENT_USER() —
     in the container runtime that can be the app's service user, not the person."""

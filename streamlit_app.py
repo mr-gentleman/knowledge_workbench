@@ -68,7 +68,7 @@ def recent_candidates():
     Refreshed after LIST_TTL_S and after this viewer saves (forget_recent)."""
     cache = st.session_state.get("recent")
     if cache is None or time.monotonic() - cache[0] > LIST_TTL_S:
-        cache = st.session_state["recent"] = (time.monotonic(), guarded(repo.list_candidates, ""))
+        cache = st.session_state["recent"] = (time.monotonic(), guarded(repo.list_metrics, ""))
     return cache[1]
 
 
@@ -81,7 +81,7 @@ def matching(search: str):
     if not q:
         return rows
     if len(rows) == repo.LIST_LIMIT:  # the cap may hide older matches: search the table
-        return guarded(repo.list_candidates, q)
+        return guarded(repo.list_metrics, q)
     return [r for r in rows
             if q in " ".join(filter(None, (r["FULL_NAME"], r["DESCRIPTION"], r["DISAMBIG"]))).lower()]
 
@@ -97,7 +97,7 @@ rows = matching(search)
 if len(rows) == repo.LIST_LIMIT:
     st.sidebar.caption(f"Showing the {repo.LIST_LIMIT} most recently updated — search to narrow.")
 # Stable IDs keep a concurrent rename/reordering from selecting a different record.
-labels = {r["CANDIDATE_ID"]: f"#{r['CANDIDATE_ID']} · {r['FULL_NAME']}" for r in rows}
+labels = {r["METRIC_ID"]: f"#{r['METRIC_ID']} · {r['FULL_NAME']}" for r in rows}
 # A just-created candidate opens on the next run. The radio's value can only be
 # set before the widget renders, so the create flow parks the id here and reruns.
 # Always consume it: if a search filter hides the new record, a leftover id would
@@ -140,7 +140,7 @@ if selected is None:
         if pending is not None and pending != fields:
             # Never replay a token for different content: first find out whether the
             # unconfirmed attempt landed.
-            prior = guarded(repo.candidate_for_token, create["token"])
+            prior = guarded(repo.metric_for_token, create["token"])
             if prior is not None:
                 create.update(token=uuid.uuid4().hex, generation=create["generation"] + 1, payload=None)
                 st.session_state["just_created"] = prior
@@ -154,7 +154,7 @@ if selected is None:
         create["payload"] = fields
         try:
             with st.spinner("Saving…"):
-                out = services.save_new_candidate(fields, viewer(), create["token"])
+                out = services.save_new_metric(fields, viewer(), create["token"])
         except ConnectionQuarantined as exc:
             st.error(f"Not saved: {exc}")
         except Exception:
@@ -174,13 +174,13 @@ if selected is None:
 else:
     editor_key = f"candidate-editor:{selected}"
     if editor_key not in st.session_state:
-        st.session_state[editor_key] = {"baseline": guarded(repo.get_candidate, selected), "generation": 0}
+        st.session_state[editor_key] = {"baseline": guarded(repo.get_metric, selected), "generation": 0}
     elif arrived and "draft" not in st.session_state[editor_key]:
         st.session_state[editor_key]["refresh"] = True
         st.session_state[editor_key]["generation"] += 1
     editor = st.session_state[editor_key]
     if editor.get("refresh"):
-        editor["baseline"] = guarded(repo.get_candidate, selected)
+        editor["baseline"] = guarded(repo.get_metric, selected)
         del editor["refresh"]  # only once it worked, so Retry refreshes too
     # Submission reruns the script. Never refresh this baseline mid-edit (only on arrival,
     # above): it must remain the revision the user actually opened.
@@ -192,7 +192,7 @@ else:
     just_saved = feedback is not None and feedback.ok and feedback.record_id == selected
     st.caption(
         (f"✓ Saved · rev {cand['REVISION_NO']} · just now  \n" if just_saved else "")
-        + f"Candidate #{cand['CANDIDATE_ID']} · rev {cand['REVISION_NO']} · {cand['STATUS']} · "
+        + f"Candidate #{cand['METRIC_ID']} · rev {cand['REVISION_NO']} · {cand['STATUS']} · "
         f"author {cand['ORIGINAL_AUTHOR'] or 'unknown'} · last edit {cand['UPDATED_BY']} "
         f"{cand['UPDATED_AT']:%Y-%m-%d %H:%M}"
     )
@@ -212,7 +212,7 @@ else:
             editor["draft"], editor["draft_note"] = fields, note
             try:
                 with st.spinner("Saving…"):
-                    out = services.save_candidate_edit(cand, fields, viewer(), note)
+                    out = services.save_metric_edit(cand, fields, viewer(), note)
             except ConnectionQuarantined as exc:
                 st.error(f"Not saved: {exc} Your draft is retained.")
             except Exception:
@@ -262,7 +262,7 @@ else:
     with tab_hist:
         # Tabs all render on every rerun, so history (full JSON snapshots) loads only on request (PLAT-05).
         if st.toggle("Show history", key=f"hist:{selected}"):
-            for h in guarded(repo.history, "metric_candidate", selected):
+            for h in guarded(repo.history, "metric", selected):
                 with st.expander(f"rev {h['REVISION_NO']} · {h['ACTION']} · {h['ACTOR']} · "
                                  f"{h['ACTED_AT']:%Y-%m-%d %H:%M}" + (f" — {h['CHANGE_NOTE']}" if h["CHANGE_NOTE"] else "")):
                     if h["SCHEMA_VERSION"] == 1:

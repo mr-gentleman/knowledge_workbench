@@ -1,0 +1,165 @@
+{
+ "lock_timeout": "5",
+ "calcs": [
+  {
+   "CALC_ID": 9000001,
+   "STATUS": "retired",
+   "IS_DEFAULT": false,
+   "REVISION_NO": 3,
+   "VALIDATED_REVISION_NO": 2
+  },
+  {
+   "CALC_ID": 9000002,
+   "STATUS": "active",
+   "IS_DEFAULT": true,
+   "REVISION_NO": 1,
+   "VALIDATED_REVISION_NO": null
+  }
+ ],
+ "revisions": [
+  [
+   "metric",
+   "100000",
+   1,
+   "create"
+  ],
+  [
+   "metric",
+   "100000",
+   2,
+   "edit"
+  ],
+  [
+   "metric_calc",
+   "9000001",
+   1,
+   "create"
+  ],
+  [
+   "metric_calc",
+   "9000002",
+   1,
+   "create"
+  ],
+  [
+   "metric_calc",
+   "9000001",
+   2,
+   "edit"
+  ],
+  [
+   "metric_calc",
+   "9000001",
+   3,
+   "retire"
+  ]
+ ],
+ "op_log": [
+  [
+   "committed",
+   1929
+  ],
+  [
+   "committed",
+   1719
+  ],
+  [
+   "committed",
+   997
+  ],
+  [
+   "committed",
+   1056
+  ]
+ ],
+ "timing": {
+  "n": 20,
+  "save_p50": 1451.7150630417746,
+  "save_max": 1771.9012909801677,
+  "refresh_p50": 420.7847290090285,
+  "op_log_duration_p50": 940.5
+ },
+ "dropped": true,
+ "steps": [
+  [
+   "create",
+   {
+    "outcome": "committed",
+    "metric_id": 100000,
+    "metric_revision": 1,
+    "changed_calcs": [],
+    "new_calcs": [],
+    "checks_due": [],
+    "collisions": []
+   }
+  ],
+  [
+   "same op again",
+   {
+    "outcome": "replayed",
+    "metric_id": 100000
+   }
+  ],
+  [
+   "edit + new PI",
+   {
+    "outcome": "committed",
+    "metric_id": 100000,
+    "metric_revision": 2,
+    "changed_calcs": [],
+    "new_calcs": [
+     9000001,
+     9000002
+    ],
+    "checks_due": [
+     9000001,
+     9000002
+    ],
+    "collisions": []
+   }
+  ],
+  [
+   "PI label only",
+   {
+    "outcome": "committed",
+    "metric_id": 100000,
+    "metric_revision": 2,
+    "changed_calcs": [
+     9000001
+    ],
+    "new_calcs": [],
+    "checks_due": [],
+    "collisions": []
+   }
+  ],
+  [
+   "stale",
+   {
+    "outcome": "conflict",
+    "metric_id": 100000
+   }
+  ],
+  [
+   "no change",
+   {
+    "outcome": "no_change",
+    "metric_id": 100000,
+    "metric_revision": 2
+   }
+  ],
+  [
+   "retire default PI",
+   {
+    "outcome": "committed",
+    "metric_id": 100000,
+    "metric_revision": 2,
+    "changed_calcs": [
+     9000001
+    ],
+    "new_calcs": [],
+    "checks_due": [],
+    "collisions": []
+   }
+  ]
+ ]
+}

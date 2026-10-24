@@ -5,17 +5,18 @@ import FactTables from './FactTables.jsx';
 import PiSection from './PiSection.jsx';
 import SearchBox, { search } from './SearchBox.jsx';
 import { SAMPLE_CANON } from './sample.js';
-import { getCandidate, getMe, listCandidates } from './api.js';
+import { checkPi, getMe, getMetric, listMetrics, reservePi } from './api.js';
 import { readStored, saveBody, useMetricSave } from './metricSave.js';
+import { fromCalc, piChanged, runState } from './pis.js';
 
 const DEPT_LABEL = d => (d ? d[0].toUpperCase() + d.slice(1) : 'Unassigned');
 
-// A live metric_candidate row → the editor's shape. Detail fields arrive on open (getCandidate).
+// A live metric row → the editor's shape. Detail fields arrive on open (getMetric). One ID for life (DEC-024).
 const fromRow = r => ({
-  key: `c${r.CANDIDATE_ID}`,
-  cid: r.CANDIDATE_ID,
-  id: `C-${r.CANDIDATE_ID}`,
-  kind: 'cand',
+  key: `m${r.METRIC_ID}`,
+  mid: r.METRIC_ID,
+  id: r.METRIC_ID,
+  kind: r.STATUS === 'canon' ? 'canon' : 'cand',
   live: true,
   dept: DEPT_LABEL(r.DEPARTMENT),
   deptRaw: r.DEPARTMENT,
@@ -53,7 +54,7 @@ const Icon = {
 };
 
 export default function App() {
-  // Live candidates only; the sample canon stands in when the API can't be reached (local dev).
+  // Live metrics only; the sample canon stands in when the API can't be reached (local dev).
   const [data, setData] = useState([]);
   const [saved, setSaved] = useState([]);
   const [sel, setSel] = useState(null);
@@ -82,10 +83,10 @@ export default function App() {
     getMe()
       .then(r => setMe(r.data))
       .catch(e => setMe({ error: e.message }));
-    listCandidates()
+    listMetrics()
       .then(({ data: rows, ms }) => {
-        // DEC-011: closed candidates are hidden by default.
-        const cands = rows.filter(r => r.STATUS === 'open').map(fromRow);
+        // DEC-011: rejected and retired metrics are hidden by default.
+        const cands = rows.filter(r => r.STATUS === 'candidate' || r.STATUS === 'canon').map(fromRow);
         // A save left unconfirmed by a closed tab comes back as its draft, ready to Retry with the same op_id.
         const stored = readStored(),
           restored = {};
@@ -123,8 +124,12 @@ export default function App() {
   if (m && orig) {
     if (['name', 'category', 'description', 'disambig'].some(k => m[k] !== orig[k])) dirty.push('definition');
     m.pis.forEach((p, i) => {
-      const o = orig.pis.find(x => x.id === p.id);
-      if (!o || o.sql !== p.sql || o.table !== p.table || o.disambig !== p.disambig || o.isDefault !== p.isDefault)
+      if (
+        piChanged(
+          p,
+          orig.pis.find(x => x.id === p.id),
+        )
+      )
         dirty.push('implementation ' + (i + 1));
     });
     const removed = orig.pis.filter(o => !m.pis.some(p => p.id === o.id)).length;
@@ -132,7 +137,7 @@ export default function App() {
   }
   const changed = k => (orig && m[k] !== orig[k] ? ' changed' : '');
 
-  // Opening a live candidate loads a fresh baseline (its revision is what the save is checked against).
+  // Opening a live metric loads a fresh baseline (its revision is what the save is checked against).
   const pick = k => {
     setSel(k);
     setError('');
@@ -140,11 +145,13 @@ export default function App() {
     const t = data.find(x => x.key === k);
     setOpenPi(t.pis[0]?.id ?? null);
     if (!t.live || pending[k]) return; // a refresh would overwrite the unconfirmed draft
-    getCandidate(t.cid)
+    getMetric(t.mid)
       .then(({ data: r, ms }) => {
-        const nm = { ...fromRow(r), loaded: true, loadMs: ms };
+        const pis = r.CALCS.map(fromCalc);
+        const nm = { ...fromRow(r), pis, loaded: true, loadMs: ms };
         setData(d => replace(d, nm));
         setSaved(s => replace(s, nm));
+        setOpenPi(pis[0]?.id ?? null);
       })
       .catch(e => setError(`Couldn't load ${t.id}: ${e.message}`));
   };
@@ -169,6 +176,19 @@ export default function App() {
     setEditing(true);
     setError('');
   };
+  // A check's result is stamped on the saved PI, not the draft: it lands in both, so Cancel keeps it.
+  const runCheck = async (key, id, rev) => {
+    const { data: out } = await checkPi(id, rev);
+    if (out.status === 'passed' || out.status === 'failed') {
+      const stamp = x =>
+        x.key !== key
+          ? x
+          : { ...x, pis: x.pis.map(p => (p.id === id ? { ...p, validatedRev: rev, check: out.status, checkMsg: out.error || '' } : p)) };
+      setData(d => d.map(stamp));
+      setSaved(s => s.map(stamp));
+    }
+    return out;
+  };
   const cancel = () => {
     setData(d => d.map(x => (x.key === sel ? orig : x)));
     setEditing(false);
@@ -178,12 +198,18 @@ export default function App() {
   const missing =
     m && m.kind === 'cand'
       ? [
-          !m.pis.length && 'at least one implementation that passes validation',
-          m.pis.length && !m.pis.some(p => p.status === 'ok') && 'a passing implementation',
+          !m.pis.length && 'at least one implementation whose SQL runs',
+          m.pis.length &&
+            !m.pis.some(
+              p =>
+                runState(
+                  p,
+                  orig.pis.find(o => o.id === p.id),
+                ).tone === 'ok',
+            ) &&
+            'an implementation whose SQL runs',
         ].filter(Boolean)
       : [];
-  // PIs on live candidates aren't wired in the spike — editing them would look saved when it isn't.
-  const piDirtyLive = m?.live && dirty.some(d => d.startsWith('implementation'));
 
   return (
     <div className="app">
@@ -215,10 +241,10 @@ export default function App() {
         <div className={'banner' + (live.state === 'ok' ? ' live' : '')}>
           <span>
             {live.state === 'ok'
-              ? `Candidates are live from AI_PLATFORM.WORKBENCH (${live.n} open, ${live.ms} ms).`
+              ? `Metrics are live from AI_PLATFORM.WORKBENCH (${live.n}, ${live.ms} ms).`
               : live.state === 'error'
                 ? `Couldn't reach the API: ${live.msg}. Showing sample data only.`
-                : 'Loading candidates…'}
+                : 'Loading metrics…'}
           </span>
           <span className="r">{me?.user ? `signed in as ${me.user}` : me?.error ? `identity: ${me.error}` : ''}</span>
         </div>
@@ -238,7 +264,7 @@ export default function App() {
               {m.kind === 'canon' ? (
                 <span className="badge canon">Canon · #{m.id}</span>
               ) : (
-                <span className="badge cand">Candidate · {m.id}</span>
+                <span className="badge cand">Candidate · #{m.id}</span>
               )}
               {pend?.state === 'saving' && (
                 <span className="saving" role="status">
@@ -321,7 +347,16 @@ export default function App() {
 
             <DefinitionSection m={m} editing={editing} setM={setM} changed={changed} />
 
-            <PiSection m={m} orig={orig} editing={editing} setM={setM} openPi={openPi} setOpenPi={setOpenPi} />
+            <PiSection
+              m={m}
+              orig={orig}
+              editing={editing}
+              setM={setM}
+              openPi={openPi}
+              setOpenPi={setOpenPi}
+              newPiId={m.live ? () => reservePi().then(r => r.data.calc_id) : async () => Date.now()}
+              check={m.live ? (id, rev) => runCheck(m.key, id, rev) : null}
+            />
           </div>
         ) : (
           <div className="page">
@@ -331,9 +366,7 @@ export default function App() {
         {nav === 'metrics' && m && editing && (
           <div className="savebar">
             <span className="what">
-              {piDirtyLive ? (
-                'The spike UI saves only the definition of a live candidate; the API accepts implementations, but this page does not send them yet.'
-              ) : dirty.length ? (
+              {dirty.length ? (
                 <>
                   Editing · unsaved changes in <b>{dirty.join(', ')}</b>
                 </>
@@ -344,7 +377,7 @@ export default function App() {
             <button className="btn ghost" onClick={cancel}>
               Cancel
             </button>
-            <button className="btn primary" onClick={save} disabled={piDirtyLive}>
+            <button className="btn primary" onClick={save}>
               Save changes
             </button>
           </div>

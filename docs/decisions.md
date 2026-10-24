@@ -278,3 +278,123 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
   QUERY_TAG on a CALL; LAST_QUERY_ID inside a procedure; actual latency.
 - Related: DEC-018, DEC-019, DEC-020, PLAT-04, PLAT-09, REL-08, REL-10, REL-11, HIST-06;
   sql/004_save_metric_proc.sql, app/repositories.py, app/services.py, tests/test_pi.py.
+
+## DEC-022 — SME SQL checks run in a read-only owner's-rights procedure, on their own connection
+
+- Date: 2026-10-23. Origin: #claude, decided by #chris ("owner's rights read-only role"). Status: built
+  on claude/implementations; sql/007 not yet run. Renumber on merge if taken.
+- Context: CHECK-01 needs PI SQL to actually run. The app role WORKBENCH_APP writes WORKBENCH and must
+  not gain read on AC, and SME SQL is arbitrary text.
+- Decision:
+  - `AI_PLATFORM.WORKBENCH.run_check(sql, max_rows)` is `EXECUTE AS OWNER`, owned by
+    `WORKBENCH_SQLCHECK`, which reads by inheriting `BI_RO` (no DML grants anywhere; per-table AC grants were too slow — #chris 2026-10-23). If BI_RO ever gains write privileges, so does the check: re-check its grants when it changes. It wraps the SQL as
+    `SELECT * FROM (<sql>) LIMIT n`, so non-queries are syntax errors and writes fail on privileges.
+    SQL errors come back as a `KW_CHECK_FAILED` row; WORKBENCH_APP gets USAGE on the procedure only.
+  - The check runs the PI's SQL as stored at the requested revision, never text from the page, and
+    stamps the result with `UPDATE … WHERE calc_id = ? AND revision_no = ?` (not a content revision).
+    A result for a revision that has moved on is reported, not recorded.
+  - It runs on a fresh connection per check (`db.check_connection`, 30 s statement timeout), outside
+    `db_lock`, so a slow check never blocks saves. This is the one database call that skips
+    `locked_session`: it opens no transaction and writes nothing. Recording goes through `query`.
+- Alternatives: restricted caller's rights (`executeAsCaller` + CALLER SELECT grants; also hard
+  read-only, runs as the person) — not chosen while the Oracle's own model is in transition;
+  switchable later behind `repo.run_check`. Granting WORKBENCH_APP SELECT on AC with a parser guard —
+  rejected (the guard would be the only wall).
+- Consequences: every SME can check SQL against all of AC (the role's grants, not the person's).
+  Checks don't advance `served_revision_no`; serving is separate.
+- Related: CHECK-01, CHECK-06, CHECK-07, DEC-019, DEC-021; sql/007_sql_check.sql, app/repositories.py
+  (`run_check`, `record_check`), app/services.py (`check_calc`), api/test_api.py (CheckTest).
+
+## DEC-023 — A SQL check stays valid until the SQL changes; the oldest active PI is the default
+
+- Date: 2026-10-23. Origin: decided by #chris; built by #claude (claude/implementations). Amends
+  DEC-019's run-status rule. Renumber on merge if taken.
+- Decision: a PI edit that keeps `sql_text` carries `validated_revision_no` to the new revision, so
+  editing "When to use" or the fact table keeps "✓ Runs". The default is re-set on every PI write to
+  the oldest active PI (lowest calc_id); retired PIs are never default and stay hidden on the page.
+- How: `sql/008_save_metric_keep_check.sql` (replaces the save procedure; otherwise 004 unchanged);
+  the page mirrors the carry-over using the save's `checks_due` (web/src/metricSave.js).
+- Alternatives: keep the strict per-revision rule (label edits would demand a re-check).
+- Related: CHECK-01, CHECK-06, UX-06, DEC-019, DEC-022.
+
+
+## DEC-024 — One metric object: candidate and canon are statuses, one ID for life
+
+- Date: 2026-10-23. Origin: #chris with Astra, written up by #claude. Status: accepted; built on
+  branch claude/unified-metric, migration (sql/009) not applied.
+- Supersedes: the 2026-10-16 handoff's "candidate vs canon" split (separate `metric_candidate` and
+  `metric_core` tables and sequences, master plan §6 "many candidates may map to one metric ID"),
+  and the PI attachment rule in sql/001 (`origin_candidate_id` until promotion).
+- Context: the split modelled a candidate as an *assertion* from any of four sources that promotion
+  either mints into new canon or attaches to existing canon. In V1 every candidate (SME authoring,
+  the legacy import) is one proposed metric, so the split only added a second ID, PI re-attachment
+  at promotion, two history streams and lineage links. Nothing depended on it yet: `metric_core`
+  was empty, promotion unbuilt, 5 test candidates and no PIs.
+- Decision:
+  - **One table `AI_PLATFORM.WORKBENCH.metric`, one ID (`metric_id`, `seq_metric_id`, from 100000
+    so new IDs never look like legacy 2–90412).** The ID never changes.
+  - **`status`: `candidate | canon | rejected | retired`.** Promotion = candidate → canon (a status
+    change and a `promote` revision). Rejected = never made canon (duplicate → `duplicate_of_metric_id`);
+    retired = was canon, no longer served (`superseded_by` optional). The words stay the ones SMEs
+    already use; renaming a status later is a one-line data change.
+  - **PIs attach to `metric_id` from creation.** No attachment change at promotion.
+  - Canon-only rules (unique name among canon, description, ≥1 passing PI) apply when entering or
+    editing canon; candidates stay loose (DEC-006 unchanged).
+  - The Oracle reads `status = 'canon'` only.
+  - Proposals from other sources against an existing metric (extraction, conversation, feedback)
+    get their own small suggestion record pointing at `metric_id` when those sources arrive.
+  - Legacy import: legacy metrics enter as candidates with new IDs; a `legacy_id_map`
+    (record_type, legacy_id, metric_id) keeps old IDs for historic Oracle logs and evals.
+- Alternatives: keep the split (rejected: cost now, benefit only for future multi-source
+  resolution, which a suggestion record serves better); one table but a separate canon ID
+  (rejected: two IDs for one thing again).
+- Consequences: sql/009 drops `metric_candidate` and `metric_core` (test rows only) and
+  `seq_candidate_id`, recreates `metric_calc` with `metric_id NOT NULL`, and replaces
+  `save_metric`. Code and the HTTP contract say metric (`/api/metrics`, `metric`, `metric_id`,
+  `metric_revision`). Old revision rows stay under record_type `metric_candidate`.
+
+## DEC-025 — Hybrid write tables, and the save back in one Python transaction (supersedes DEC-021's CALL)
+
+- Date: 2026-10-23. Origin: #chris (wants 1–2 s saves; keep save + history atomic), Astra's review,
+  #claude. Status: accepted; built on branch claude/hybrid-tables (on claude/unified-metric);
+  sql/010–011 not applied.
+- Context: the one-CALL save (DEC-021) measured 4.0–4.7 s live. ~2 s of that is DML + COMMIT on
+  standard tables; the rest is procedure overhead (start-up, ~750 ms of variable unpacking, gaps).
+  Bench 2026-10-23 (HYBRID_BENCH.md, 15 rounds, the real save logic, laptop → Snowflake), definition +
+  one PI edit: procedure on standard tables 4.7 s; procedure on hybrid 2.8 s; Python statements on
+  standard 3.5 s; **Python statements on hybrid 1.5 s (server 0.82 s, est. ~0.6 s from SPCS)**.
+  Conflict and replay behaved the same on all four.
+- Decision:
+  - **`metric`, `metric_calc`, `revision`, `op_log`, `fact_table_core` become hybrid tables** (sql/010:
+    rebuild + rename, explicit DDL). Primary keys are now enforced. `op_log` gets a surrogate key
+    `log_id` (replays write a second row for an op_id). Indexes on metric.create_token,
+    metric_calc.metric_id and op_log.op_id.
+  - **`repositories.save_metric` runs sql/009's rules as client statements in one transaction**, with
+    the same contract, so services and the API are unchanged. Steps: one read (replay markers + the
+    metric at its expected revision), one read of the touched PIs, then BEGIN → conditional UPDATE /
+    INSERT → default reset (only when a PI is added or retired) → **one INSERT ALL writing every
+    revision snapshot and the committed op_log row** → COMMIT. History can't drift from the save.
+  - Transactions exist only inside that call. Any failure inside it marks the connection dirty, so
+    DEC-008's heal runs before the next operation (one shared connection under db_lock, DEC-007).
+  - **`LOCK_TIMEOUT` = 5 s on the app's connection.** A save blocked by a row lock would hold db_lock
+    for every viewer for Snowflake's 12 h default. It now fails fast as "try again". It doesn't end
+    the holder: a disconnected holder is rolled back by Snowflake (5 min on hybrid tables per Astra,
+    unverified). No startup cleanup of open transactions: it can't tell abandoned from a live instance.
+  - **Nightly standard-table copy** into `AI_PLATFORM.WORKBENCH_BACKUP` (sql/011, task 03:00 CT,
+    30-day retention if the edition allows). It gives back Fail-safe, UNDROP and clone for the copy,
+    and is the restore source (handoff). It also covers PLAT-06.
+- Alternatives: keep the CALL on hybrid tables (2.2–2.8 s: the procedure overhead stays);
+  Python on standard tables (2.6–3.5 s); an anonymous (inline) procedure (same overhead as a named one, measured as
+  variant P); stay put and lean on the optimistic save display (4 s).
+- Consequences: the procedure's write logic moves into Python (one copy: sql/009's procedure is dropped
+  after acceptance). A one-time import still goes straight to SQL (CoCo) or through
+  `repositories.save_metric`. Hybrid tables: no Fail-safe, UNDROP, clone or replication of the live
+  tables; Time Travel AT(TIMESTAMP) only; no result cache; another session may read up to ~100 ms
+  stale. `save_fact_table` (sql/005) keeps its procedure but writes hybrid tables.
+  Verified: local tests (fake session); the repository code live against scratch hybrid tables
+  (all outcomes, p50 1.45 s from the laptop); sql/010 and its rollback rehearsed on scratch copies of
+  the live rows. Not verified: sql/011 (no CREATE TASK for WORKBENCH_APP), timing from SPCS, the
+  5-minute abort.
+- Related: DEC-007, DEC-008, DEC-020, DEC-021, DEC-023, DEC-024; PLAT-06, PLAT-09, PLAT-10;
+  sql/010, sql/011, sql/rollback/010_hybrid_tables_down.sql, docs/hybrid-migration-handoff.md,
+  app/repositories.py, api/spcs.py.
