@@ -1,7 +1,7 @@
 // Physical implementations (PIs) on the metric page: shape, run status, titles and what a save sends.
 // Rules: DEC-019 (default, labels, run status), DEC-020 (one save for the whole page).
 
-// A metric_calc row (GET /api/candidates/{id} → CALCS) → the page's PI.
+// A metric_calc row (GET /api/metrics/{id} → CALCS) → the page's PI.
 export const fromCalc = c => ({
   id: c.CALC_ID,
   table: c.SOURCE_TABLE || '',

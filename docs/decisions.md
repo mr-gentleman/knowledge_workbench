@@ -317,3 +317,38 @@ Earlier context remains in app-design-notes.md; do not invent retrospective date
 - Alternatives: keep the strict per-revision rule (label edits would demand a re-check).
 - Related: CHECK-01, CHECK-06, UX-06, DEC-019, DEC-022.
 
+
+## DEC-024 — One metric object: candidate and canon are statuses, one ID for life
+
+- Date: 2026-10-23. Origin: #chris with Astra, written up by #claude. Status: accepted; built on
+  branch claude/unified-metric, migration (sql/009) not applied.
+- Supersedes: the 2026-10-16 handoff's "candidate vs canon" split (separate `metric_candidate` and
+  `metric_core` tables and sequences, master plan §6 "many candidates may map to one metric ID"),
+  and the PI attachment rule in sql/001 (`origin_candidate_id` until promotion).
+- Context: the split modelled a candidate as an *assertion* from any of four sources that promotion
+  either mints into new canon or attaches to existing canon. In V1 every candidate (SME authoring,
+  the legacy import) is one proposed metric, so the split only added a second ID, PI re-attachment
+  at promotion, two history streams and lineage links. Nothing depended on it yet: `metric_core`
+  was empty, promotion unbuilt, 5 test candidates and no PIs.
+- Decision:
+  - **One table `AI_PLATFORM.WORKBENCH.metric`, one ID (`metric_id`, `seq_metric_id`, from 100000
+    so new IDs never look like legacy 2–90412).** The ID never changes.
+  - **`status`: `candidate | canon | rejected | retired`.** Promotion = candidate → canon (a status
+    change and a `promote` revision). Rejected = never made canon (duplicate → `duplicate_of_metric_id`);
+    retired = was canon, no longer served (`superseded_by` optional). The words stay the ones SMEs
+    already use; renaming a status later is a one-line data change.
+  - **PIs attach to `metric_id` from creation.** No attachment change at promotion.
+  - Canon-only rules (unique name among canon, description, ≥1 passing PI) apply when entering or
+    editing canon; candidates stay loose (DEC-006 unchanged).
+  - The Oracle reads `status = 'canon'` only.
+  - Proposals from other sources against an existing metric (extraction, conversation, feedback)
+    get their own small suggestion record pointing at `metric_id` when those sources arrive.
+  - Legacy import: legacy metrics enter as candidates with new IDs; a `legacy_id_map`
+    (record_type, legacy_id, metric_id) keeps old IDs for historic Oracle logs and evals.
+- Alternatives: keep the split (rejected: cost now, benefit only for future multi-source
+  resolution, which a suggestion record serves better); one table but a separate canon ID
+  (rejected: two IDs for one thing again).
+- Consequences: sql/009 drops `metric_candidate` and `metric_core` (test rows only) and
+  `seq_candidate_id`, recreates `metric_calc` with `metric_id NOT NULL`, and replaces
+  `save_metric`. Code and the HTTP contract say metric (`/api/metrics`, `metric`, `metric_id`,
+  `metric_revision`). Old revision rows stay under record_type `metric_candidate`.

@@ -157,7 +157,7 @@ Suggested and implemented by **#codex**, 2026-10-21; requested by **#chris**. St
 
 | ID | Status | Priority / scope | Task and acceptance check | Origin / evidence |
 |---|---|---|---|---|
-| LIFE-01 | TODO | P2 / V1 | Promote candidate → canon atomically: enforce readiness, mint metric ID, attach PIs while preserving origin, record history, and initialize serving pointers appropriately. Repeated promotion cannot mint multiple canon records. | #existing — planned feature |
+| LIFE-01 | TODO | P2 / V1 | Promote candidate → canon atomically: enforce readiness, flip status candidate → canon on the same metric ID (DEC-024: no new ID, PIs already attached), record a `promote` revision, and initialize serving pointers appropriately. Repeated promotion is a no-op. | #existing — planned feature |
 | LIFE-02 | TODO | P2 / V1 | Reject candidate with reason and optional duplicate_of_metric_id. Direct the user to the existing canon when applicable. | #existing — planned feature |
 | LIFE-03 | TODO | P2 / V1 | Edit canon directly after promotion; retire canon/PIs with reason and appropriate replacement linkage. Retired content must not be served. Preserve the agreed schema distinction: superseded_by is currently on canon, not PI. | #existing — planned feature |
 | LIFE-04 | TODO | P3 / Later | Add merge tooling only after the basic lifecycle is established. | #existing — deferred |

@@ -7,16 +7,16 @@ from fastapi.testclient import TestClient
 
 from api import main, spcs
 
-BODY = {"candidate": {"id": 7, "expected_revision": 3, "fields": {"full_name": "Net New ARR", "description": "New"}}}
+BODY = {"metric": {"id": 7, "expected_revision": 3, "fields": {"full_name": "Net New ARR", "description": "New"}}}
 URL = "/api/metrics/save"
-COMMITTED = {"outcome": "committed", "candidate_id": 7, "candidate_revision": 4}
+COMMITTED = {"outcome": "committed", "metric_id": 7, "metric_revision": 4}
 
 
 class ApiTest(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(main.api)
         patches = [mock.patch.object(main.repo, "save_metric", return_value=COMMITTED),
-                   mock.patch.object(main.repo, "list_calcs_for_candidate", return_value=[]),
+                   mock.patch.object(main.repo, "list_calcs", return_value=[]),
                    mock.patch.object(spcs, "IN_SPCS", True)]
         self.save = [p.start() for p in patches][0]
         self.addCleanup(mock.patch.stopall)
@@ -26,7 +26,7 @@ class ApiTest(unittest.TestCase):
 
     def test_edit_is_one_call_attributed_to_header_user(self):
         r = self.post(**{spcs.USER_HEADER: "CLENZINI"})
-        self.assertEqual((r.json()["status"], r.json()["candidate_revision"]), ("saved", 4))
+        self.assertEqual((r.json()["status"], r.json()["metric_revision"]), ("saved", 4))
         self.save.assert_called_once()
         self.assertEqual(self.save.call_args.args[1], "CLENZINI")
 
@@ -43,12 +43,12 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.save.call_args.args[0], "op-1")
 
     def test_invalid_draft_writes_nothing(self):
-        blank = {"candidate": {**BODY["candidate"], "fields": {"full_name": " "}}}
+        blank = {"metric": {**BODY["metric"], "fields": {"full_name": " "}}}
         self.assertEqual(self.post(blank, **{spcs.USER_HEADER: "CLENZINI"}).json()["status"], "invalid")
         self.save.assert_not_called()
 
     def test_no_change_passes_through(self):
-        self.save.return_value = {"outcome": "no_change", "candidate_id": 7, "candidate_revision": 3}
+        self.save.return_value = {"outcome": "no_change", "metric_id": 7, "metric_revision": 3}
         self.assertEqual(self.post(**{spcs.USER_HEADER: "CLENZINI"}).json()["status"], "no_change")
 
 
@@ -121,10 +121,10 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.client.post("/api/pis/5/check", json={"revision_no": 3}).status_code, 401)
         self.connect.assert_not_called()
 
-    def test_open_candidate_includes_its_active_pis(self):
-        with mock.patch.object(main.repo, "get_candidate", return_value={"CANDIDATE_ID": 7}), \
-             mock.patch.object(main.repo, "list_calcs_for_candidate", return_value=[CALC]):
-            self.assertEqual(self.client.get("/api/candidates/7").json()["CALCS"][0]["CALC_ID"], 5)
+    def test_open_metric_includes_its_active_pis(self):
+        with mock.patch.object(main.repo, "get_metric", return_value={"METRIC_ID": 7}), \
+             mock.patch.object(main.repo, "list_calcs", return_value=[CALC]):
+            self.assertEqual(self.client.get("/api/metrics/7").json()["CALCS"][0]["CALC_ID"], 5)
 
 
 class ConnectionTest(unittest.TestCase):

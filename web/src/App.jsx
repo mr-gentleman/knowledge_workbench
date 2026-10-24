@@ -5,18 +5,18 @@ import FactTables from './FactTables.jsx';
 import PiSection from './PiSection.jsx';
 import SearchBox, { matches } from './SearchBox.jsx';
 import { SAMPLE_CANON } from './sample.js';
-import { checkPi, getCandidate, getMe, listCandidates, reservePi } from './api.js';
+import { checkPi, getMe, getMetric, listMetrics, reservePi } from './api.js';
 import { readStored, saveBody, useMetricSave } from './metricSave.js';
 import { fromCalc, piChanged, runState } from './pis.js';
 
 const DEPT_LABEL = d => (d ? d[0].toUpperCase() + d.slice(1) : 'Unassigned');
 
-// A live metric_candidate row → the editor's shape. Detail fields arrive on open (getCandidate).
+// A live metric row → the editor's shape. Detail fields arrive on open (getMetric). One ID for life (DEC-024).
 const fromRow = r => ({
-  key: `c${r.CANDIDATE_ID}`,
-  cid: r.CANDIDATE_ID,
-  id: `C-${r.CANDIDATE_ID}`,
-  kind: 'cand',
+  key: `m${r.METRIC_ID}`,
+  mid: r.METRIC_ID,
+  id: r.METRIC_ID,
+  kind: r.STATUS === 'canon' ? 'canon' : 'cand',
   live: true,
   dept: DEPT_LABEL(r.DEPARTMENT),
   deptRaw: r.DEPARTMENT,
@@ -82,10 +82,10 @@ export default function App() {
     getMe()
       .then(r => setMe(r.data))
       .catch(e => setMe({ error: e.message }));
-    listCandidates()
+    listMetrics()
       .then(({ data: rows, ms }) => {
-        // DEC-011: closed candidates are hidden by default.
-        const cands = rows.filter(r => r.STATUS === 'open').map(fromRow);
+        // DEC-011: rejected and retired metrics are hidden by default.
+        const cands = rows.filter(r => r.STATUS === 'candidate' || r.STATUS === 'canon').map(fromRow);
         // A save left unconfirmed by a closed tab comes back as its draft, ready to Retry with the same op_id.
         const stored = readStored(),
           restored = {};
@@ -131,7 +131,7 @@ export default function App() {
   }
   const changed = k => (orig && m[k] !== orig[k] ? ' changed' : '');
 
-  // Opening a live candidate loads a fresh baseline (its revision is what the save is checked against).
+  // Opening a live metric loads a fresh baseline (its revision is what the save is checked against).
   const pick = k => {
     setSel(k);
     setError('');
@@ -139,7 +139,7 @@ export default function App() {
     const t = data.find(x => x.key === k);
     setOpenPi(t.pis[0]?.id ?? null);
     if (!t.live || pending[k]) return; // a refresh would overwrite the unconfirmed draft
-    getCandidate(t.cid)
+    getMetric(t.mid)
       .then(({ data: r, ms }) => {
         const pis = r.CALCS.map(fromCalc);
         const nm = { ...fromRow(r), description: r.DESCRIPTION || '', disambig: r.DISAMBIG || '', pis, loaded: true, loadMs: ms };
@@ -234,10 +234,10 @@ export default function App() {
         <div className={'banner' + (live.state === 'ok' ? ' live' : '')}>
           <span>
             {live.state === 'ok'
-              ? `Candidates are live from AI_PLATFORM.WORKBENCH (${live.n} open, ${live.ms} ms). Canon is sample data.`
+              ? `Metrics are live from AI_PLATFORM.WORKBENCH (${live.n}, ${live.ms} ms). Sample metrics are not saved.`
               : live.state === 'error'
                 ? `Couldn't reach the API: ${live.msg}. Showing sample data only.`
-                : 'Loading candidates…'}
+                : 'Loading metrics…'}
           </span>
           <span className="r">{me?.user ? `signed in as ${me.user}` : me?.error ? `identity: ${me.error}` : ''}</span>
         </div>
@@ -258,7 +258,7 @@ export default function App() {
                 {m.kind === 'canon' ? (
                   <span className="badge canon">Canon · #{m.id}</span>
                 ) : (
-                  <span className="badge cand">Candidate · {m.id}</span>
+                  <span className="badge cand">Candidate · #{m.id}</span>
                 )}
                 {pend?.state === 'saving' && (
                   <span className="saving" role="status">

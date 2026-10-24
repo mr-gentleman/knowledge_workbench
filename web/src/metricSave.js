@@ -27,8 +27,8 @@ const store = (key, v) => {
 // The request for saving draft `m` against its last saved revision. A new op_id per save; Retry reuses it.
 export const saveBody = (m, orig) => ({
   op_id: crypto.randomUUID(),
-  candidate: {
-    id: m.cid,
+  metric: {
+    id: m.mid,
     expected_revision: orig.rev,
     fields: { full_name: m.name, description: m.description, disambig: m.disambig, department: m.deptRaw, category: m.category },
   },
@@ -49,7 +49,7 @@ export function outcome(out, snap, user) {
     const keep = p.validatedRev === p.rev && !(out.checks_due || []).includes(p.id);
     return { ...p, rev, validatedRev: keep ? rev : p.validatedRev };
   });
-  return { saved: { ...snap, pis, rev: out.candidate_revision, updatedBy: wrote ? user : snap.updatedBy }, wrote };
+  return { saved: { ...snap, pis, rev: out.metric_revision, updatedBy: wrote ? user : snap.updatedBy }, wrote };
 }
 
 const without = (o, key) => {
@@ -97,7 +97,7 @@ export function useMetricSave({ user, onSaved, flash }) {
     onSaved(key, snap, r.saved);
     settle(p => without(p, key));
     store(key, null);
-    if (r.wrote) setJustSaved(j => ({ ...j, [key]: { rev: out.candidate_revision, ms } }));
+    if (r.wrote) setJustSaved(j => ({ ...j, [key]: { rev: out.metric_revision, ms } }));
     else flash(`No changes · ${ms} ms`);
     if (out.warnings?.length) flash(out.warnings.join(' '));
   };

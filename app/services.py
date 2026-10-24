@@ -44,7 +44,7 @@ def _clean(fields: dict) -> dict:
     return out
 
 
-def _collisions(hits: list | None, exclude_candidate: int | None = None) -> list[str]:
+def _collisions(hits: list | None, exclude_id: int | None = None) -> list[str]:
     # Advisory only: the save procedure omits hits when its lookup failed, and that never
     # changes a save's outcome (REL-11).
     if hits is None:
@@ -52,11 +52,11 @@ def _collisions(hits: list | None, exclude_candidate: int | None = None) -> list
     return [
         f"Possible duplicate — {h['KIND']} #{h['ID']} is also named “{h['FULL_NAME']}”."
         for h in hits
-        if not (h["KIND"] == "candidate" and h["ID"] == exclude_candidate)
+        if h["ID"] != exclude_id
     ]
 
 
-def save_new_candidate(fields: dict, actor: str, token: str) -> Outcome:
+def save_new_metric(fields: dict, actor: str, token: str) -> Outcome:
     """token identifies this create attempt; retries with it return the first result."""
     fields = _clean(fields)
     if not fields.get("full_name"):
@@ -66,26 +66,26 @@ def save_new_candidate(fields: dict, actor: str, token: str) -> Outcome:
                            [], check_name=normalize_name(fields["full_name"]))
     msg = "Saved." if fields.get("description") else "Saved — add a description to establish this metric."
     warnings = [] if res["outcome"] == "replayed" else _collisions(res.get("collisions"))
-    return Outcome(True, msg, res["candidate_id"], 1, warnings)
+    return Outcome(True, msg, res["metric_id"], 1, warnings)
 
 
-def save_candidate_edit(baseline: dict, fields: dict, actor: str, note: str | None = None) -> Outcome:
+def save_metric_edit(baseline: dict, fields: dict, actor: str, note: str | None = None) -> Outcome:
     """baseline = the record as the user opened it. The conditional UPDATE is the conflict
     guard, so there is no pre-read; the latest version is fetched only on a conflict."""
     fields = _clean(fields)
     if not fields.get("full_name"):
         return Outcome(False, "A name is required to save.")
-    candidate_id, expected = baseline["CANDIDATE_ID"], baseline["REVISION_NO"]
+    metric_id, expected = baseline["METRIC_ID"], baseline["REVISION_NO"]
     before = {k: baseline[k.upper()] for k in EDITABLE}
     if all((before[k] or None) == (fields.get(k) or None) for k in EDITABLE):
-        return Outcome(True, "No changes to save.", candidate_id, expected)
+        return Outcome(True, "No changes to save.", metric_id, expected)
     res = repo.save_metric(uuid.uuid4().hex, actor,
-                           {"id": candidate_id, "expected_revision": expected, "fields": _pick(fields, EDITABLE)},
+                           {"id": metric_id, "expected_revision": expected, "fields": _pick(fields, EDITABLE)},
                            [], note, normalize_name(fields["full_name"]))
     if res["outcome"] == "conflict":
         return _conflict(baseline)
-    return Outcome(True, "Saved.", candidate_id, res["candidate_revision"],
-                   _collisions(res.get("collisions"), candidate_id))
+    return Outcome(True, "Saved.", metric_id, res["metric_revision"],
+                   _collisions(res.get("collisions"), metric_id))
 
 
 def _pick(fields: dict, keys: tuple) -> dict:
@@ -177,8 +177,8 @@ def calc_changed(before: dict, fields: dict) -> list[str]:
 class MetricOutcome:
     status: str  # saved | no_change | invalid | conflict | failed
     message: str
-    candidate_id: int | None = None
-    candidate_revision: int | None = None
+    metric_id: int | None = None
+    metric_revision: int | None = None
     calc_revisions: dict[int, int] = field(default_factory=dict)
     problems: list[dict] = field(default_factory=list)   # {record, field, message}
     conflicts: list[dict] = field(default_factory=list)  # {record, latest, changed_fields, by, at}
@@ -186,52 +186,52 @@ class MetricOutcome:
     checks_due: list[int] = field(default_factory=list)  # PIs whose SQL changed: run-check these
 
 
-def save_metric(actor: str, op_id: str, candidate: dict, calcs: list[dict],
+def save_metric(actor: str, op_id: str, metric: dict, calcs: list[dict],
                 change_note: str | None = None) -> MetricOutcome:
-    """candidate: {id (None = create), expected_revision, create_token, fields}.
+    """metric: {id (None = create), expected_revision, create_token, fields}.
     calcs: only PIs the draft touched — {calc_id (reserved with repo.reserve_calc_id when new),
     expected_revision (None = new), fields, retire}. Reuse op_id when retrying the same draft."""
-    cid = candidate.get("id")
-    cand = {**candidate, "fields": _clean(_pick(candidate.get("fields") or {}, EDITABLE))}
+    mid = metric.get("id")
+    draft = {**metric, "fields": _clean(_pick(metric.get("fields") or {}, EDITABLE))}
     calcs = [{"calc_id": c["calc_id"], "expected_revision": c.get("expected_revision"),
               "retire": bool(c.get("retire")),
               "fields": _clean(_pick(c.get("fields") or {}, CALC_EDITABLE))} for c in calcs]
     try:
-        existing = repo.list_calcs_for_candidate(cid) if cid is not None else []
-        if problems := _metric_problems(cand["fields"], calcs, existing):
-            return MetricOutcome("invalid", "Nothing was saved — fix the marked fields.", cid,
+        existing = repo.list_calcs(mid) if mid is not None else []
+        if problems := _metric_problems(draft["fields"], calcs, existing):
+            return MetricOutcome("invalid", "Nothing was saved — fix the marked fields.", mid,
                                  problems=problems)
         _mark_default(calcs, existing)
-        res = repo.save_metric(op_id, actor, cand, calcs, change_note,
-                               normalize_name(cand["fields"]["full_name"]))
+        res = repo.save_metric(op_id, actor, draft, calcs, change_note,
+                               normalize_name(draft["fields"]["full_name"]))
         if res["outcome"] == "conflict":
-            return _metric_conflict(cand, calcs)
+            return _metric_conflict(draft, calcs)
         if res["outcome"] == "replayed":
-            return _metric_replayed(res["candidate_id"], cand, calcs)
+            return _metric_replayed(res["metric_id"], draft, calcs)
     except ConnectionQuarantined as exc:
-        return MetricOutcome("failed", f"Not saved: {exc} Your draft is kept.", cid)
+        return MetricOutcome("failed", f"Not saved: {exc} Your draft is kept.", mid)
     except Exception:
-        log.exception("Metric save failed: candidate %s, op %s", cid, op_id)
+        log.exception("Metric save failed: metric %s, op %s", mid, op_id)
         return MetricOutcome("failed", "Save could not be confirmed. Your draft is kept; "
-                             "saving again is safe.", cid)
-    cid = res["candidate_id"]
+                             "saving again is safe.", mid)
+    mid = res["metric_id"]
     if res["outcome"] == "no_change":
-        return MetricOutcome("no_change", "No changes to save.", cid, res["candidate_revision"],
+        return MetricOutcome("no_change", "No changes to save.", mid, res["metric_revision"],
                              {c["calc_id"]: c["expected_revision"] for c in calcs if c["expected_revision"]})
     changed, new = set(res.get("changed_calcs") or []), set(res.get("new_calcs") or [])
     revisions = {c["calc_id"]: 1 if c["calc_id"] in new else
                  c["expected_revision"] + (c["calc_id"] in changed)
                  for c in calcs if c["calc_id"] in new or c["expected_revision"]}
-    return MetricOutcome("saved", "Saved.", cid, res["candidate_revision"], revisions,
-                         warnings=_collisions(res.get("collisions"), cid),
+    return MetricOutcome("saved", "Saved.", mid, res["metric_revision"], revisions,
+                         warnings=_collisions(res.get("collisions"), mid),
                          checks_due=res.get("checks_due") or [])
 
 
-def _metric_problems(cand: dict, calcs: list[dict], existing: list[dict]) -> list[dict]:
+def _metric_problems(draft: dict, calcs: list[dict], existing: list[dict]) -> list[dict]:
     """Every problem at once, so the page can mark each card. Nothing is written if any."""
     problems = []
-    if not cand.get("full_name"):
-        problems.append({"record": "candidate", "field": "full_name", "message": "A name is required to save."})
+    if not draft.get("full_name"):
+        problems.append({"record": "metric", "field": "full_name", "message": "A name is required to save."})
     touched = {c["calc_id"]: c for c in calcs}
     # The PIs that will be active after this save: untouched existing ones keep their saved values.
     active = [touched.get(e["CALC_ID"], {"calc_id": e["CALC_ID"],
@@ -249,7 +249,7 @@ def _metric_problems(cand: dict, calcs: list[dict], existing: list[dict]) -> lis
 
 
 def _mark_default(calcs: list[dict], existing: list[dict]) -> None:
-    """The first active PI of a candidate is its default (DEC-019): a new PI is default only when
+    """The first active PI of a metric is its default (DEC-019): a new PI is default only when
     no existing PI stays active."""
     retiring = {c["calc_id"] for c in calcs if c["retire"]}
     has_active = any(e["CALC_ID"] not in retiring for e in existing)
@@ -259,14 +259,14 @@ def _mark_default(calcs: list[dict], existing: list[dict]) -> None:
             c["is_default"] = has_active = True
 
 
-def _metric_conflict(cand: dict, calcs: list[dict]) -> MetricOutcome:
+def _metric_conflict(draft: dict, calcs: list[dict]) -> MetricOutcome:
     """Nothing was written. Re-read every record the draft touched to say which moved and how."""
     conflicts = []
-    if cand.get("id") is not None:
-        latest = repo.get_candidate(cand["id"])
-        if latest is None or latest["REVISION_NO"] != cand["expected_revision"]:
-            conflicts.append(_conflict_entry("candidate", cand["id"], cand["expected_revision"], latest,
-                                             "metric_candidate", LABELS))
+    if draft.get("id") is not None:
+        latest = repo.get_metric(draft["id"])
+        if latest is None or latest["REVISION_NO"] != draft["expected_revision"]:
+            conflicts.append(_conflict_entry("metric", draft["id"], draft["expected_revision"], latest,
+                                             "metric", LABELS))
     for c in calcs:
         if c["expected_revision"] is None:
             continue
@@ -275,11 +275,11 @@ def _metric_conflict(cand: dict, calcs: list[dict]) -> MetricOutcome:
             conflicts.append(_conflict_entry(c["calc_id"], c["calc_id"], c["expected_revision"], latest,
                                              "metric_calc", CALC_LABELS))
     parts = [f"{e['by'] or 'someone'} changed "
-             + ("the definition" if e["record"] == "candidate" else f"implementation #{e['record']}")
+             + ("the definition" if e["record"] == "metric" else f"implementation #{e['record']}")
              + f" ({', '.join(e['changed_fields']) or 'nothing visible'})" for e in conflicts]
     return MetricOutcome("conflict", "Nothing was saved: " + ("; ".join(parts) or "a record changed")
                          + " while you were editing. Your edits are still in the draft.",
-                         cand.get("id"), conflicts=conflicts)
+                         draft.get("id"), conflicts=conflicts)
 
 
 def _conflict_entry(record, record_id: int, expected: int, latest: dict | None,
@@ -293,11 +293,11 @@ def _conflict_entry(record, record_id: int, expected: int, latest: dict | None,
             "by": latest and latest.get("UPDATED_BY"), "at": latest and latest.get("UPDATED_AT")}
 
 
-def _metric_replayed(cid: int, cand: dict, calcs: list[dict]) -> MetricOutcome:
+def _metric_replayed(mid: int, draft: dict, calcs: list[dict]) -> MetricOutcome:
     """An earlier attempt of this save landed without its acknowledgement. Report what landed;
     if the draft has changed since, say so — the caller keeps the newer edits as unsaved."""
-    landed = repo.get_candidate(cid)
-    differs = any((landed[k.upper()] or None) != (cand["fields"].get(k) or None) for k in EDITABLE)
+    landed = repo.get_metric(mid)
+    differs = any((landed[k.upper()] or None) != (draft["fields"].get(k) or None) for k in EDITABLE)
     revisions = {}
     for c in calcs:
         row = repo.get_calc(c["calc_id"])
@@ -307,7 +307,7 @@ def _metric_replayed(cid: int, cand: dict, calcs: list[dict]) -> MetricOutcome:
         differs = differs or (row["STATUS"] == "active") == c["retire"] or bool(calc_changed(row, c["fields"]))
     warnings = [("Your earlier save did go through. Your newer changes are still in the draft — "
                  "Save again to apply them.")] if differs else []
-    return MetricOutcome("saved", "Saved.", cid, landed["REVISION_NO"], revisions, warnings=warnings)
+    return MetricOutcome("saved", "Saved.", mid, landed["REVISION_NO"], revisions, warnings=warnings)
 
 
 def _conflict_message(latest: dict, changed: list[str]) -> str:
@@ -318,9 +318,9 @@ def _conflict_message(latest: dict, changed: list[str]) -> str:
 
 
 def _conflict(baseline: dict) -> Outcome:
-    candidate_id = baseline["CANDIDATE_ID"]
-    latest = repo.get_candidate(candidate_id)
+    metric_id = baseline["METRIC_ID"]
+    latest = repo.get_metric(metric_id)
     if latest is None:
-        return Outcome(False, f"Candidate #{candidate_id} no longer exists.", candidate_id)
+        return Outcome(False, f"Metric #{metric_id} no longer exists.", metric_id)
     changed = [LABELS[k] for k in EDITABLE if (baseline[k.upper()] or None) != (latest[k.upper()] or None)]
-    return Outcome(False, _conflict_message(latest, changed), candidate_id, latest["REVISION_NO"], latest=latest)
+    return Outcome(False, _conflict_message(latest, changed), metric_id, latest["REVISION_NO"], latest=latest)

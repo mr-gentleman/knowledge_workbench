@@ -71,14 +71,14 @@ class SaveProcedureTests(unittest.TestCase):
 
     def test_one_statement_carrying_viewer_revision_and_tag(self):
         s = FakeSession()
-        res = call_save(s, {"outcome": "committed", "candidate_id": 1, "candidate_revision": 4},
+        res = call_save(s, {"outcome": "committed", "metric_id": 1, "metric_revision": 4},
                         note="why")
-        self.assertEqual(res["candidate_revision"], 4)
+        self.assertEqual(res["metric_revision"], 4)
         self.assertEqual(s.statements, ["CALL AI_PLATFORM.WORKBENCH.save_metric(?)"])  # no BEGIN/COMMIT/ALTER
         req = json.loads(s.calls[0][1][0])
         self.assertEqual(req["actor"], "viewer")  # attribution = the viewer passed in
-        self.assertEqual((req["candidate"]["id"], req["candidate"]["expected_revision"]), (1, 3))
-        self.assertIsNone(req["candidate"]["fields"]["category"])  # "" travels as NULL
+        self.assertEqual((req["metric"]["id"], req["metric"]["expected_revision"]), (1, 3))
+        self.assertIsNone(req["metric"]["fields"]["category"])  # "" travels as NULL
         self.assertEqual((req["change_note"], req["check_name"], req["schema_version"]),
                          ("why", "x", repo.SNAPSHOT_VERSION))
         tag = json.loads(s.results[0].collect.call_args.kwargs["statement_params"]["QUERY_TAG"])
@@ -97,7 +97,7 @@ class SaveProcedureTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             call_save(s)
         first = len(s.calls)
-        call_save(s, {"outcome": "committed", "candidate_id": 1, "candidate_revision": 4})
+        call_save(s, {"outcome": "committed", "metric_id": 1, "metric_revision": 4})
         self.assertEqual(s.statements[first:], ["ROLLBACK", "SELECT CURRENT_TRANSACTION()",
                                                 "CALL AI_PLATFORM.WORKBENCH.save_metric(?)"])
         self.assertFalse(db.is_dirty())
@@ -108,44 +108,44 @@ class SaveProcedureTests(unittest.TestCase):
         with self.assertRaises(db.ConnectionQuarantined):
             call_save(s)
         with self.assertRaises(db.ConnectionQuarantined), patch.object(db, "session", return_value=s):
-            repo.list_candidates()
-        self.assertFalse(any("save_metric" in q or "metric_candidate" in q for q in s.statements))
+            repo.list_metrics()
+        self.assertFalse(any("save_metric" in q or "metric" in q for q in s.statements))
 
     def test_sidebar_list_is_capped(self):
-        s = FakeSession(rows={"FROM AI_PLATFORM.WORKBENCH.metric_candidate": []})
+        s = FakeSession(rows={"FROM AI_PLATFORM.WORKBENCH.metric": []})
         with patch.object(db, "session", return_value=s):
-            repo.list_candidates()
+            repo.list_metrics()
         self.assertIn(f"LIMIT {repo.LIST_LIMIT}", s.statements[-1])
 
     def test_failed_duplicate_check_is_a_warning_not_a_failure(self):
         # REL-11: the procedure omits collisions when its lookup failed; the save still committed.
-        row = dict(CANDIDATE_ID=1, REVISION_NO=1, FULL_NAME='a', DESCRIPTION=None, DISAMBIG=None,
+        row = dict(METRIC_ID=1, REVISION_NO=1, FULL_NAME='a', DESCRIPTION=None, DISAMBIG=None,
                    DEPARTMENT=None, CATEGORY=None)
-        with patch.object(repo, 'save_metric', return_value={"outcome": "committed", "candidate_id": 1,
-                                                              "candidate_revision": 2}):
-            out = services.save_candidate_edit(row, {'full_name': 'b'}, 'tester')
+        with patch.object(repo, 'save_metric', return_value={"outcome": "committed", "metric_id": 1,
+                                                              "metric_revision": 2}):
+            out = services.save_metric_edit(row, {'full_name': 'b'}, 'tester')
         self.assertTrue(out.ok)
         self.assertEqual(out.revision_no, 2)
         self.assertEqual(out.warnings, ["Couldn't check for duplicate names right now."])
 
     def test_duplicate_warnings_exclude_the_record_itself(self):
-        row = dict(CANDIDATE_ID=1, REVISION_NO=1, FULL_NAME='Same', DESCRIPTION=None, DISAMBIG=None,
+        row = dict(METRIC_ID=1, REVISION_NO=1, FULL_NAME='Same', DESCRIPTION=None, DISAMBIG=None,
                    DEPARTMENT=None, CATEGORY=None)
-        hits = [{"KIND": "candidate", "ID": 1, "FULL_NAME": "b"}, {"KIND": "metric", "ID": 9, "FULL_NAME": "B"}]
-        with patch.object(repo, 'save_metric', return_value={"outcome": "committed", "candidate_id": 1,
-                                                              "candidate_revision": 2, "collisions": hits}) as save:
-            out = services.save_candidate_edit(row, {'full_name': ' B '}, 't')
+        hits = [{"KIND": "candidate", "ID": 1, "FULL_NAME": "b"}, {"KIND": "canon", "ID": 9, "FULL_NAME": "B"}]
+        with patch.object(repo, 'save_metric', return_value={"outcome": "committed", "metric_id": 1,
+                                                              "metric_revision": 2, "collisions": hits}) as save:
+            out = services.save_metric_edit(row, {'full_name': ' B '}, 't')
         self.assertEqual(save.call_args.args[5], "b")  # normalized here; the procedure checks renames only
         self.assertEqual(len(out.warnings), 1)
-        self.assertIn("metric #9", out.warnings[0])
+        self.assertIn("canon #9", out.warnings[0])
 
     def test_legacy_edit_conflict_reports_theirs(self):
-        row = dict(CANDIDATE_ID=1, REVISION_NO=1, FULL_NAME='a', DESCRIPTION=None, DISAMBIG=None,
+        row = dict(METRIC_ID=1, REVISION_NO=1, FULL_NAME='a', DESCRIPTION=None, DISAMBIG=None,
                    DEPARTMENT=None, CATEGORY=None)
         theirs = dict(row, REVISION_NO=2, DESCRIPTION='gabe was here', UPDATED_BY='gabe', UPDATED_AT=None)
-        with patch.object(repo, 'save_metric', return_value={"outcome": "conflict", "candidate_id": 1}), \
-                patch.object(repo, 'get_candidate', return_value=theirs):
-            out = services.save_candidate_edit(row, {'full_name': 'b'}, 'tester')
+        with patch.object(repo, 'save_metric', return_value={"outcome": "conflict", "metric_id": 1}), \
+                patch.object(repo, 'get_metric', return_value=theirs):
+            out = services.save_metric_edit(row, {'full_name': 'b'}, 'tester')
         self.assertFalse(out.ok)
         self.assertEqual(out.latest, theirs)
         self.assertIn("Changed: Description", out.message)
@@ -159,7 +159,7 @@ class LockTests(unittest.TestCase):
 
     def test_any_read_waits_for_a_save_in_progress(self):
         in_call, release, order = threading.Event(), threading.Event(), []
-        s = FakeSession(rows={"metric_candidate": []})
+        s = FakeSession(rows={"metric": []})
         real_sql = s.sql
 
         def sql(text, params=None):
@@ -169,7 +169,7 @@ class LockTests(unittest.TestCase):
                     in_call.set()
                     release.wait(2)
                     order.append("write")
-                    return [[json.dumps({"outcome": "no_change", "candidate_id": 1})]]
+                    return [[json.dumps({"outcome": "no_change", "metric_id": 1})]]
                 result.collect.side_effect = slow
             return result
         s.sql = sql
@@ -179,7 +179,7 @@ class LockTests(unittest.TestCase):
                                       args=("op", "tester", {"id": 1, "fields": {}}, []))
             writer.start()
             self.assertTrue(in_call.wait(2))
-            reader = threading.Thread(target=lambda: repo.list_candidates() or order.append("read"))
+            reader = threading.Thread(target=lambda: repo.list_metrics() or order.append("read"))
             reader.start()
             reader.join(0.2)
             self.assertTrue(reader.is_alive())  # a plain list read is blocked behind the save
@@ -201,7 +201,7 @@ class LockTests(unittest.TestCase):
 class EditorTests(unittest.TestCase):
     def setUp(self):
         fresh_state(self)
-        self.row = dict(CANDIDATE_ID=1, FULL_NAME='Test', DESCRIPTION='Original',
+        self.row = dict(METRIC_ID=1, FULL_NAME='Test', DESCRIPTION='Original',
                         DISAMBIG='', CATEGORY='', DEPARTMENT=None, REVISION_NO=1,
                         STATUS='open', ORIGINAL_AUTHOR='tester', UPDATED_BY='tester',
                         UPDATED_AT=datetime(2026, 10, 21))
@@ -210,18 +210,18 @@ class EditorTests(unittest.TestCase):
         def update(op_id, actor, cand, calcs, note=None, check_name=None):
             expected = cand['expected_revision']
             if expected != self.row['REVISION_NO']:
-                return {"outcome": "conflict", "candidate_id": cand['id']}
+                return {"outcome": "conflict", "metric_id": cand['id']}
             self.row.update({k.upper(): v for k, v in cand['fields'].items()})
             self.row['REVISION_NO'] += 1
             self.writes.append(expected)
             self.notes.append(note)
-            return {"outcome": "committed", "candidate_id": cand['id'],
-                    "candidate_revision": self.row['REVISION_NO'], "collisions": []}
+            return {"outcome": "committed", "metric_id": cand['id'],
+                    "metric_revision": self.row['REVISION_NO'], "collisions": []}
         self.history = Mock(return_value=[])
         patches = [patch('app.db.viewer', return_value='tester'),
                    patch('st_keyup.st_keyup', keyup_as_text_input),
-                   patch.object(repo, 'list_candidates', side_effect=lambda search: [copy.deepcopy(self.row)]),
-                   patch.object(repo, 'get_candidate', side_effect=lambda cid: copy.deepcopy(self.row)),
+                   patch.object(repo, 'list_metrics', side_effect=lambda search: [copy.deepcopy(self.row)]),
+                   patch.object(repo, 'get_metric', side_effect=lambda cid: copy.deepcopy(self.row)),
                    patch.object(repo, 'history', self.history),
                    patch.object(repo, 'save_metric', side_effect=update)]
         for p in patches:
@@ -292,7 +292,7 @@ class EditorTests(unittest.TestCase):
         self.assertEqual(self.writes, [1])
 
     def test_write_race_rejected_by_repository(self):
-        with patch.object(repo, 'save_metric', return_value={'outcome': 'conflict', 'candidate_id': 1}):
+        with patch.object(repo, 'save_metric', return_value={'outcome': 'conflict', 'metric_id': 1}):
             self.save('Draft')
         self.assertTrue(self.app.error)
         self.assertEqual(self.app.text_area[0].value, 'Draft')
@@ -311,7 +311,7 @@ class EditorTests(unittest.TestCase):
 
     def test_quarantine_on_first_read_shows_retry_not_a_crash(self):
         self.app.session_state['recent'] = (0, [])  # expired: the next run reads the list
-        with patch.object(repo, 'list_candidates', side_effect=db.ConnectionQuarantined('busy')):
+        with patch.object(repo, 'list_metrics', side_effect=db.ConnectionQuarantined('busy')):
             self.app.run()
         self.assertFalse(self.app.exception)
         self.assertIn('recovering', self.app.error[0].value)
@@ -333,7 +333,7 @@ class EditorTests(unittest.TestCase):
         self.app.run()
         self.history.assert_not_called()
         self.app.toggle(key='hist:1').set_value(True).run()
-        self.history.assert_called_with('metric_candidate', 1)
+        self.history.assert_called_with('metric', 1)
 
 
 class DepartmentTests(unittest.TestCase):
@@ -355,24 +355,24 @@ class CreateTests(unittest.TestCase):
         def insert(op_id, actor, cand, calcs, note=None, check_name=None):
             fields, token = cand['fields'], cand['create_token']
             if token in self.tokens:  # same contract as the repository: idempotent per token
-                return {"outcome": "replayed", "candidate_id": self.tokens[token], "collisions": []}
+                return {"outcome": "replayed", "metric_id": self.tokens[token], "collisions": []}
             cid = len(self.rows) + 1
-            self.rows.append(dict(CANDIDATE_ID=cid, FULL_NAME=fields['full_name'],
+            self.rows.append(dict(METRIC_ID=cid, FULL_NAME=fields['full_name'],
                                   DESCRIPTION=fields.get('description'), DISAMBIG=None,
                                   CATEGORY=None, DEPARTMENT=None, REVISION_NO=1, STATUS='open',
                                   ORIGINAL_AUTHOR=actor, UPDATED_BY=actor,
                                   UPDATED_AT=datetime(2026, 10, 22)))
             self.inserts.append(cid)
             self.tokens[token] = cid
-            return {"outcome": "committed", "candidate_id": cid, "collisions": []}
+            return {"outcome": "committed", "metric_id": cid, "collisions": []}
         self.insert = Mock(side_effect=insert)
-        by_id = lambda cid: next((copy.deepcopy(r) for r in self.rows if r['CANDIDATE_ID'] == cid), None)
+        by_id = lambda cid: next((copy.deepcopy(r) for r in self.rows if r['METRIC_ID'] == cid), None)
         patches = [patch('app.db.viewer', return_value='tester'),
                    patch('st_keyup.st_keyup', keyup_as_text_input),
-                   patch.object(repo, 'list_candidates', side_effect=lambda search: [
+                   patch.object(repo, 'list_metrics', side_effect=lambda search: [
                        copy.deepcopy(r) for r in self.rows
                        if search.lower() in r['FULL_NAME'].lower()]),
-                   patch.object(repo, 'get_candidate', side_effect=by_id),
+                   patch.object(repo, 'get_metric', side_effect=by_id),
                    patch.object(repo, 'history', return_value=[]),
                    patch.object(repo, 'save_metric', self.insert)]
         for p in patches:
@@ -445,7 +445,7 @@ class CreateTests(unittest.TestCase):
         self.lose_first_ack(landed=True)
         self.name_input().set_value('First name')
         self.click_save()
-        with patch.object(repo, 'candidate_for_token', side_effect=lambda t: self.tokens.get(t)):
+        with patch.object(repo, 'metric_for_token', side_effect=lambda t: self.tokens.get(t)):
             self.name_input().set_value('Second name')
             self.click_save()
         self.assertEqual(self.inserts, [1])
@@ -456,7 +456,7 @@ class CreateTests(unittest.TestCase):
         self.lose_first_ack(landed=False)
         self.name_input().set_value('First name')
         self.click_save()
-        with patch.object(repo, 'candidate_for_token', side_effect=lambda t: self.tokens.get(t)):
+        with patch.object(repo, 'metric_for_token', side_effect=lambda t: self.tokens.get(t)):
             self.name_input().set_value('Second name')
             self.click_save()
         self.assertEqual(self.inserts, [1])
