@@ -8,6 +8,7 @@ Details live elsewhere — **why** in [decisions.md](decisions.md) (DEC-…), **
 
 | Date | Commit (branch) | What changed — user-visible first | Why / refs | DDL applied | Verified |
 |---|---|---|---|---|---|
+| 2026-10-23 | `de4516c` (claude/left-panel — not merged to main) | Sidebar shows live candidates only (sample only if the API is down); live candidates land in their department folder; ranked search with highlights over name/category/definition/SQL; `/` ⌘K ↑↓ Enter Esc; status dots incl. unsaved; folder state remembered | — | — | SPCS service KW_SPIKE READY on image de4516c; page not yet checked live by Chris |
 | 2026-10-23 | `d1b6783` (claude/REL-08-m1-hardening — merged to main 2026-10-23) | Failed or interrupted saves can't leak into the next viewer's save; every database call takes the lock; create is safe to retry (same token → same record); sidebar capped at 200; history loads on request; op_log records every save with lock wait; snapshots keep NULL fields | DEC-007, DEC-008; REL-08..12, PLAT-04, PLAT-05, HIST-06 | sql/003 (create_token, op_log) | Chris UI checks pass; op_log + revision rows checked |
 | 2026-10-22 | `8fff6ad` (main) | No user change. Deploy goes through `scripts/deploy.sh`; PyPI packages installable (artifact repo attached) | DEC-005; PLAT-01 | — | Not recorded whether this commit or a later spike was the deployed one |
 | 2026-10-21 | `f597ce4` (main) | Multi-file app deployed from the repo; a new candidate opens right after create, so a second Save can't mint a duplicate | DEC-005; PLAT-01, REL-02 | — | Created #3 on the published app |
@@ -27,7 +28,7 @@ Refresh when you merge to main or push a new branch. Live list:
 
 | Branch | What it does | Refs | State |
 |---|---|---|---|
-| claude/left-panel | Live candidates land in their department folder (list query now returns department); ranked search over name/category/definition/SQL with highlights; `/` ⌘K ↑↓ Enter Esc; clearer status dots incl. unsaved; folder state remembered | — | Awaiting Chris's feedback; built on react-split |
+| claude/left-panel | Live candidates land in their department folder (list query now returns department); ranked search over name/category/definition/SQL with highlights; `/` ⌘K ↑↓ Enter Esc; clearer status dots incl. unsaved; folder state remembered | — | Deployed to KW_SPIKE 2026-10-23 (de4516c); awaiting Chris's feedback; built on react-split |
 | claude/sql-on-page | PI backend (create/edit/retire, run status); Streamlit SQL card dropped per DEC-018 | UX-01, UX-02, DEC-019 | Built on ux-quick-fixes |
 | claude/sql-on-page-streamlit-ui | Same PI backend plus Streamlit PI cards | UX-01, UX-02 | Likely superseded while Streamlit stays frozen (DEC-018) |
 | claude/spcs-spike | React + FastAPI on SPCS; whole-page Edit with PIs; optimistic save; hybrid-table benchmark (2.7 s → 1.0 s) | DEC-018, FE-01, HYBRID_BENCH.md | Live spike; includes save-proc |
