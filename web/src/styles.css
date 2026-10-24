@@ -305,15 +305,6 @@ textarea:focus-visible {
 .muted {
   color: var(--muted);
 }
-.sqlread {
-  margin: 0;
-  padding: 10px 12px;
-  background: var(--code-bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font: 12.5px/1.6 var(--mono);
-  overflow-x: auto;
-}
 .badge {
   display: inline-flex;
   align-items: center;
@@ -421,70 +412,6 @@ textarea:focus-visible {
 .select.changed {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
-}
-.pis {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
-  overflow: hidden;
-}
-.pirow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: var(--fg);
-  text-align: left;
-  padding: 12px 14px;
-  cursor: pointer;
-  font: 14px var(--sans);
-  flex-wrap: wrap;
-}
-.pirow + .pibody,
-.pi + .pi {
-  border-top: 1px solid var(--line);
-}
-.pirow .grain {
-  font-weight: 600;
-}
-.pirow .tbl {
-  font: 13px var(--mono);
-  color: var(--muted);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pirow .right {
-  margin-left: auto;
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.pibody {
-  padding: 4px 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  background: var(--bg);
-}
-.pi.open .pirow {
-  background: var(--bg);
-}
-.addpi {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  border-top: 1px dashed var(--line);
-  width: 100%;
-  background: transparent;
-  color: var(--accent);
-  font: 500 13.5px var(--sans);
-  padding: 11px 14px;
-  cursor: pointer;
-  text-align: left;
 }
 .ide {
   border: 1px solid var(--line);
@@ -694,30 +621,6 @@ li.CodeMirror-hint-active {
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
-}
-.valmsg {
-  font-size: 12.5px;
-  color: var(--muted);
-}
-.valmsg.ok {
-  color: var(--ok);
-}
-.valmsg.bad {
-  color: var(--bad);
-}
-.radio {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13.5px;
-}
-.served {
-  font-size: 12.5px;
-  color: var(--muted);
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
 }
 .missing {
   border: 1px solid var(--berry-soft);

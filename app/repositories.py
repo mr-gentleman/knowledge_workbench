@@ -1,8 +1,12 @@
-"""Persistence. Owns SQL; every write is one CALL to the save procedure (sql/004). No business rules."""
+"""Persistence. Owns SQL; every content write is one CALL to the save procedure (sql/004); a SQL
+check's result is stamped in place (record_check). No business rules."""
 import json
 import logging
 import time
 
+from snowflake.connector.errors import ProgrammingError
+
+from app import db
 from app.db import SCHEMA, locked_session, mark_dirty, query
 
 log = logging.getLogger(__name__)
@@ -86,6 +90,46 @@ def list_fact_tables():
 def get_fact_table(table_name: str):
     rows = query(f"SELECT * FROM {SCHEMA}.fact_table_core WHERE table_name_full = ?", [table_name])
     return rows[0].as_dict() if rows else None
+
+
+# ── SQL checks (sql/007, DEC-022) ───────────────────────────────────────────
+
+CHECK_MAX_ROWS = 100
+CHECK_TIMEOUT_S = 30
+_TIMEOUT_ERRNOS = {604, 630}  # statement canceled / reached its timeout
+
+
+def run_check(sql_text: str) -> dict:
+    """Runs SME SQL through the read-only run_check procedure on its own connection.
+    → {ok, ms, columns, rows, error, query_id}; ok False = the SQL failed or timed out.
+    Raises when the check itself couldn't run (no connection, procedure missing)."""
+    started = time.monotonic()
+    with db.check_connection(CHECK_TIMEOUT_S) as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(f"CALL {SCHEMA}.run_check(?, ?)", [sql_text, CHECK_MAX_ROWS])
+        except ProgrammingError as exc:
+            if exc.errno not in _TIMEOUT_ERRNOS:
+                raise
+            return {"ok": False, "ms": _ms(started), "columns": [], "rows": [], "query_id": exc.sfqid,
+                    "error": f"Stopped after {CHECK_TIMEOUT_S} s."}
+        columns, rows = [d[0] for d in cur.description], cur.fetchall()
+    failed = columns[:1] == ["KW_CHECK"] and rows and rows[0][0] == "KW_CHECK_FAILED"
+    return {"ok": not failed, "ms": _ms(started), "columns": [] if failed else columns,
+            "rows": [] if failed else rows, "query_id": cur.sfqid, "error": rows[0][2] if failed else None}
+
+
+def record_check(calc_id: int, revision_no: int, passed: bool, message: str | None, query_id: str | None) -> bool:
+    """Stamps a check result on the revision it ran against; not a content revision (sql/001).
+    False when the PI has moved on meanwhile: a late result never marks a newer revision (CHECK-01)."""
+    rows = query(
+        f"""UPDATE {SCHEMA}.metric_calc
+            SET validated_revision_no = revision_no, validation_status = ?, validation_message = ?,
+                validation_query_id = ?, validated_at = CURRENT_TIMESTAMP()
+            WHERE calc_id = ? AND revision_no = ? AND status = 'active'""",
+        ["passed" if passed else "failed", message, query_id, calc_id, revision_no],
+    )
+    return rows[0][0] == 1
 
 
 # ── the one write path ──────────────────────────────────────────────────────

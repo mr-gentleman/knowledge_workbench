@@ -19,13 +19,14 @@ USER_TOKEN_HEADER = "Sf-Context-Current-User-Token"
 _session = None
 
 
-def _connect(token: str):
+def _connect(token: str, **extra):
     return snowflake.connector.connect(
         host=os.environ["SNOWFLAKE_HOST"], account=os.environ["SNOWFLAKE_ACCOUNT"],
         authenticator="oauth", token=token,
         database="AI_PLATFORM", schema="WORKBENCH", warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
         client_session_keep_alive=True,
         paramstyle="qmark",  # app/repositories.py binds with ?, as st.connection's session does
+        **extra,
     )
 
 
@@ -45,6 +46,16 @@ def session() -> Session:
         else:
             _session = Session.builder.config("connection_name", os.getenv("KW_CONNECTION", "workbench_deploy")).create()
     return _session
+
+
+def check_connection(timeout_s: int):
+    """Replaces app.db.check_connection: a new owner's-rights connection per SQL check, closed after
+    it. The checked SQL itself runs inside run_check as the read-only WORKBENCH_SQLCHECK (sql/007)."""
+    params = {"session_parameters": {"STATEMENT_TIMEOUT_IN_SECONDS": timeout_s}}
+    if IN_SPCS:
+        return _connect(_service_token(), **params)
+    return snowflake.connector.connect(connection_name=os.getenv("KW_CONNECTION", "workbench_deploy"),
+                                       paramstyle="qmark", **params)
 
 
 def viewer(request: Request) -> str:

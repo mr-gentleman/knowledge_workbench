@@ -121,6 +121,54 @@ def validation_state(calc: dict) -> str:
         calc.get("VALIDATION_STATUS"), "Not run")
 
 
+@dataclass
+class CheckOutcome:
+    status: str  # passed | failed | moved | unavailable
+    message: str
+    revision_no: int | None = None
+    ms: int | None = None
+    row_count: int = 0
+    truncated: bool = False  # row_count stopped at the check's row limit
+    columns: list[str] = field(default_factory=list)
+    rows: list[list] = field(default_factory=list)  # the first CHECK_PREVIEW_ROWS, as text
+    error: str | None = None
+
+
+CHECK_PREVIEW_ROWS = 20
+# Final semicolons and anything after them that is only whitespace or comments; run_check wraps the SQL.
+_TRAILING_END = re.compile(r"(;|\s|--[^\n]*|/\*.*?\*/)*$", re.S)
+
+
+def check_calc(actor: str, calc_id: int, revision_no: int) -> CheckOutcome:
+    """Runs a PI's SQL as saved at revision_no and stamps the result on that revision (CHECK-01).
+    It runs the stored SQL, never text from the page, so a pass is evidence about what was saved."""
+    calc = repo.get_calc(calc_id)
+    if calc is None or calc["STATUS"] != "active" or calc["REVISION_NO"] != revision_no:
+        return CheckOutcome("moved", "This implementation changed since you opened it. Reload to check "
+                            "the latest version.", revision_no)
+    sql = _TRAILING_END.sub("", calc["SQL_TEXT"] or "").strip()
+    try:
+        res = repo.run_check(sql) if sql else {"ok": False, "ms": 0, "columns": [], "rows": [],
+                                                 "query_id": None, "error": "There is no SQL to run."}
+        recorded = repo.record_check(calc_id, revision_no, res["ok"], res["error"], res["query_id"])
+    except Exception:
+        log.exception("SQL check failed to run: calc %s rev %s", calc_id, revision_no)
+        return CheckOutcome("unavailable", "Couldn't run the check right now. Nothing was recorded; "
+                            "try again shortly.", revision_no)
+    log.info("check calc %s rev %s by %s: ok=%s %sms recorded=%s",
+             calc_id, revision_no, actor, res["ok"], res["ms"], recorded)
+    if not recorded:
+        return CheckOutcome("moved", "Someone saved this implementation while the check ran, so the "
+                            "result wasn't recorded. Reload to check the latest version.", revision_no)
+    status = "passed" if res["ok"] else "failed"
+    label = validation_state({"REVISION_NO": revision_no, "VALIDATED_REVISION_NO": revision_no,
+                              "VALIDATION_STATUS": status})
+    return CheckOutcome(status, label, revision_no, res["ms"], len(res["rows"]),
+                        len(res["rows"]) >= repo.CHECK_MAX_ROWS, res["columns"],
+                        [[None if v is None else str(v) for v in r] for r in res["rows"][:CHECK_PREVIEW_ROWS]],
+                        res["error"])
+
+
 def calc_changed(before: dict, fields: dict) -> list[str]:
     """Editable fields where fields differ from the saved row (UPPER-case keys)."""
     return [k for k in CALC_EDITABLE if (before[k.upper()] or None) != (fields.get(k) or None)]

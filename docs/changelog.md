@@ -27,7 +27,6 @@ Refresh when you merge to main or push a new branch. Live list:
 
 | Branch | What it does | Refs | State |
 |---|---|---|---|
-| claude/fact-tables | Fact tables screen: browse, create, edit (grain, key, time field, required filters, gotchas); `GET /api/fact-tables` for the PI picker; one-CALL save | UX-04, DEC-021 | Pushed, not merged; needs sql/005 + sql/006 via CoCo |
 | claude/sql-on-page | PI backend (create/edit/retire, run status); Streamlit SQL card dropped per DEC-018 | UX-01, UX-02, DEC-019 | Built on ux-quick-fixes |
 | claude/sql-on-page-streamlit-ui | Same PI backend plus Streamlit PI cards | UX-01, UX-02 | Likely superseded while Streamlit stays frozen (DEC-018) |
 | claude/spcs-spike | React + FastAPI on SPCS; whole-page Edit with PIs; optimistic save; hybrid-table benchmark (2.7 s → 1.0 s) | DEC-018, FE-01, HYBRID_BENCH.md | Live spike; includes save-proc |

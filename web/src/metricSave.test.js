@@ -25,6 +25,7 @@ const snap = {
   category: 'Retention',
   rev: 3,
   updatedBy: 'OLD',
+  pis: [],
 };
 
 describe('outcome', () => {
@@ -42,6 +43,23 @@ describe('outcome', () => {
     });
     expect(outcome({ status: 'replayed', candidate_revision: 4 }, snap, 'ME').wrote).toBe(true);
   });
+  it('lists every problem of an invalid save', () => {
+    const out = { status: 'invalid', message: 'Nothing was saved.', problems: [{ message: 'Add SQL to save.' }] };
+    expect(outcome(out, snap, 'ME').msg).toBe('NRR: Nothing was saved. Add SQL to save.');
+  });
+  it('moves saved PIs to their new revisions; a check survives unless the SQL changed', () => {
+    const pis = [
+      { id: 5, rev: 2, validatedRev: 2 },
+      { id: 6, rev: 4, validatedRev: 4 },
+      { id: 9, rev: 1, validatedRev: null },
+    ];
+    const out = { status: 'saved', candidate_revision: 4, calc_revisions: { 5: 3, 6: 5 }, checks_due: [6] };
+    expect(outcome(out, { ...snap, pis }, 'ME').saved.pis).toEqual([
+      { id: 5, rev: 3, validatedRev: 3 },
+      { id: 6, rev: 5, validatedRev: 4 },
+      { id: 9, rev: 1, validatedRev: null },
+    ]);
+  });
   it('keeps the author on a no-op save', () => {
     expect(outcome({ status: 'unchanged', candidate_revision: 3 }, snap, 'ME')).toEqual({
       saved: { ...snap, updatedBy: 'OLD' },
@@ -52,7 +70,7 @@ describe('outcome', () => {
 
 describe('saveBody', () => {
   it('checks against the last saved revision, not the draft', () => {
-    const b = saveBody({ ...snap, rev: 9 }, { rev: 3 });
+    const b = saveBody({ ...snap, rev: 9 }, { rev: 3, pis: [] });
     expect(b.candidate).toMatchObject({ id: 7, expected_revision: 3 });
     expect(saveBody(snap, snap).op_id).not.toBe(b.op_id);
   });
