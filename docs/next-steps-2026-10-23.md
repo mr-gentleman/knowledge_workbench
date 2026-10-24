@@ -24,8 +24,9 @@ Live in `AI_PLATFORM.WORKBENCH` today: old `metric_candidate` (5 test rows), `me
 - **DEC-023** a check survives edits that don't change the SQL; the oldest active PI is always the default.
 - **DEC-024** one metric object, one ID for life; legacy IDs only in `legacy_id_map`.
 - **To write — DEC-025:** #chris chose hybrid tables + the save back in Python. That **supersedes DEC-021** (keeps DEC-020's
-  all-or-nothing). Decided: the metric save (`save_metric`, 004/008/009) becomes a Python transaction in
-  `app/repositories.py`. **Pending §4.2:** whether `save_fact_table` (005) moves too; until then it stays a procedure.
+  all-or-nothing). Decided (#chris 2026-10-23): **one pattern for every table users save to** — `metric`,
+  `metric_calc` and `fact_table_core` are hybrid tables, and both saves (`save_metric`, `save_fact_table`) become
+  Python transactions in `app/repositories.py`; the procedures are dropped once the Python saves ship.
 
 ## 3. Proposal — merge and ship order
 
@@ -44,7 +45,7 @@ Between the migration and the deploy the live app can't list or save metrics —
 ## 4. Decisions needed from #chris
 
 1. **Approve step 4 as one ship** (unified + hybrid together, no procedure in 009)?
-2. **Port `save_fact_table` to Python** with the metric save (one pattern), or leave the fact-table procedure as is?
+2. ~~Port `save_fact_table` to Python?~~ Decided: yes, same pattern as the metric save (see §2).
 3. **UX-09:** keep, rename or hide *category* on the metric page?
 4. **Streamlit:** delete at the step-4 deploy (it only gets renames now), or keep until a set cutover date?
 5. **Legacy import trial** (5 metrics, via `legacy_id_map`): start after step 4? Card is up.
