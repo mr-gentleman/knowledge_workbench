@@ -17,6 +17,9 @@ USER_HEADER = "Sf-Context-Current-User"
 USER_TOKEN_HEADER = "Sf-Context-Current-User-Token"
 
 _session = None
+# A save waiting on a row lock holds db_lock, so every viewer waits with it. Fail it fast instead of
+# Snowflake's 12 h default; a holder that disconnected is rolled back by Snowflake (DEC-025).
+SAVE_SESSION_PARAMETERS = {"LOCK_TIMEOUT": 5}
 
 
 def _connect(token: str, **extra):
@@ -42,9 +45,11 @@ def session() -> Session:
     global _session
     if _session is None:
         if IN_SPCS:
-            _session = Session.builder.configs({"connection": _connect(_service_token())}).create()
+            _session = Session.builder.configs({"connection": _connect(
+                _service_token(), session_parameters=SAVE_SESSION_PARAMETERS)}).create()
         else:
-            _session = Session.builder.config("connection_name", os.getenv("KW_CONNECTION", "workbench_deploy")).create()
+            _session = Session.builder.configs({"connection_name": os.getenv("KW_CONNECTION", "workbench_deploy"),
+                                               "session_parameters": SAVE_SESSION_PARAMETERS}).create()
     return _session
 
 

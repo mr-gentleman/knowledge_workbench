@@ -53,53 +53,110 @@ def fresh_state(test):
     test.addCleanup(db._state.clear)
 
 
-def call_save(s, result=None, candidate=None, calcs=(), op_id="op1", note=None, check="x"):
-    """repo.save_metric against a FakeSession whose CALL returns result."""
-    if result is not None:
-        s.rows["CALL"] = [[json.dumps(result)]]
+STORED = [None, 1, "Old", None, None, None, None]  # replay marker, then the metric at its expected revision
+
+
+def call_save(s, metric=None, calcs=(), op_id="op1", note=None, check="x", stored=STORED):
+    """repo.save_metric against a FakeSession whose first read returns stored."""
+    s.rows.setdefault("TRY_TO_NUMBER", [stored])
+    s.rows.setdefault("SELECT status, metric_id, full_name", [])
     with patch.object(db, "session", return_value=s):
-        return repo.save_metric(op_id, "viewer", candidate or {"id": 1, "expected_revision": 3,
+        return repo.save_metric(op_id, "viewer", metric or {"id": 1, "expected_revision": 3,
                                 "fields": {"full_name": "X", "category": ""}}, list(calcs), note, check)
 
 
-class SaveProcedureTests(unittest.TestCase):
-    """DEC-021: every save is one CALL; the procedure owns the transaction and op_log, and a failed
-    CALL can't leak an uncertain state into the next viewer's work (DEC-007, DEC-008)."""
+def params_of(s, needle):
+    return next(p for text, p in s.calls if needle in text)
+
+
+class SaveTransactionTests(unittest.TestCase):
+    """DEC-025: the save is one transaction on the shared connection, opened and ended inside
+    repo.save_metric; history and the committed op_log row are one statement; a failure can't leak an
+    uncertain state into the next viewer's work (DEC-007, DEC-008)."""
 
     def setUp(self):
         fresh_state(self)
 
-    def test_one_statement_carrying_viewer_revision_and_tag(self):
+    def test_edit_writes_metric_history_and_log_in_one_transaction(self):
         s = FakeSession()
-        res = call_save(s, {"outcome": "committed", "metric_id": 1, "metric_revision": 4},
-                        note="why")
-        self.assertEqual(res["metric_revision"], 4)
-        self.assertEqual(s.statements, ["CALL AI_PLATFORM.WORKBENCH.save_metric(?)"])  # no BEGIN/COMMIT/ALTER
-        req = json.loads(s.calls[0][1][0])
-        self.assertEqual(req["actor"], "viewer")  # attribution = the viewer passed in
-        self.assertEqual((req["metric"]["id"], req["metric"]["expected_revision"]), (1, 3))
-        self.assertIsNone(req["metric"]["fields"]["category"])  # "" travels as NULL
-        self.assertEqual((req["change_note"], req["check_name"], req["schema_version"]),
-                         ("why", "x", repo.SNAPSHOT_VERSION))
-        tag = json.loads(s.results[0].collect.call_args.kwargs["statement_params"]["QUERY_TAG"])
-        self.assertEqual((tag["op_id"], tag["actor"]), ("op1", "viewer"))  # same op_id as op_log
+        res = call_save(s, note="why")
+        self.assertEqual((res["outcome"], res["metric_revision"]), ("committed", 4))
+        self.assertEqual([q.split()[0] for q in s.statements],
+                         ["SELECT", "SELECT", "BEGIN", "UPDATE", "INSERT", "COMMIT"])  # read, name check, txn
+        history = next(q for q in s.statements if q.lstrip().startswith("INSERT ALL"))
+        self.assertIn("INTO AI_PLATFORM.WORKBENCH.revision", history)
+        self.assertIn("INTO AI_PLATFORM.WORKBENCH.op_log", history)
+        update = params_of(s, "SET full_name")
+        self.assertEqual(update, ["X", None, None, None, None, "viewer", 1, 3])  # "" saved as NULL; viewer
+        self.assertIn("why", params_of(s, "INSERT ALL"))
+        for r in s.results:  # every statement carries the op_id that op_log records
+            tag = json.loads(r.collect.call_args.kwargs["statement_params"]["QUERY_TAG"])
+            self.assertEqual((tag["op_id"], tag["actor"]), ("op1", "viewer"))
         self.assertFalse(db.is_dirty())
 
-    def test_failed_or_interrupted_call_quarantines(self):
+    def test_stale_revision_writes_nothing(self):
+        s = FakeSession()
+        res = call_save(s, stored=[None] * 7)
+        self.assertEqual(res["outcome"], "conflict")
+        self.assertNotIn("BEGIN", s.statements)
+        self.assertIn("conflict", params_of(s, "INSERT INTO AI_PLATFORM.WORKBENCH.op_log"))
+
+    def test_same_op_id_again_is_replayed_without_writes(self):
+        s = FakeSession()
+        res = call_save(s, stored=[5] + [None] * 6)
+        self.assertEqual((res["outcome"], res["metric_id"]), ("replayed", 5))
+        self.assertNotIn("BEGIN", s.statements)
+
+    def test_blank_and_null_are_the_same_content(self):
+        s = FakeSession()
+        res = call_save(s, stored=[None, 1, "X", None, None, None, ""])
+        self.assertEqual((res["outcome"], res["metric_revision"]), ("no_change", 3))
+        self.assertNotIn("BEGIN", s.statements)
+
+    def test_race_lost_after_the_check_rolls_back_as_a_conflict(self):
+        s = FakeSession(rows={"SET full_name": [[0]]})
+        res = call_save(s)
+        self.assertEqual(res["outcome"], "conflict")
+        self.assertIn("ROLLBACK", s.statements)
+        self.assertNotIn("COMMIT", s.statements)
+        self.assertFalse(db.is_dirty())
+
+    def test_pi_edit_keeps_its_check_unless_the_sql_changes_and_new_pi_resets_default(self):
+        pi = {"SELECT calc_id, revision_no": [[7, 2, "SELECT 1", None, "daily"]]}
+        s = FakeSession(rows=dict(pi))
+        res = call_save(s, stored=[None, 1, "X", None, None, None, None], calcs=[
+            {"calc_id": 7, "expected_revision": 2, "retire": False, "fields": {"sql_text": "SELECT 1", "disambig": "d"}}])
+        self.assertEqual((res["changed_calcs"], res["checks_due"]), ([7], []))  # label edit: check still counts
+        self.assertIn("validated_revision_no = IFF(", next(q for q in s.statements if "SET sql_text" in q))
+        self.assertFalse(any("SET is_default" in q for q in s.statements))  # same PIs active: default can't move
+        s = FakeSession(rows=dict(pi))
+        res = call_save(s, stored=[None, 1, "X", None, None, None, None], calcs=[
+            {"calc_id": 7, "expected_revision": 2, "retire": False, "fields": {"sql_text": "SELECT 2", "disambig": "daily"}},
+            {"calc_id": 9, "expected_revision": None, "retire": False, "fields": {"sql_text": "SELECT 3"}}])
+        self.assertEqual((res["changed_calcs"], res["new_calcs"], res["checks_due"]), ([7], [9], [7, 9]))
+        self.assertTrue(any("SET is_default" in q for q in s.statements))
+
+    def test_pi_not_at_its_revision_refuses_the_whole_save(self):
+        s = FakeSession(rows={"SELECT calc_id, revision_no": [[7, 3, "SELECT 1", None, None]]})
+        res = call_save(s, calcs=[{"calc_id": 7, "expected_revision": 2, "retire": False, "fields": {}}])
+        self.assertEqual(res["outcome"], "conflict")
+        self.assertNotIn("BEGIN", s.statements)
+
+    def test_failed_or_interrupted_transaction_quarantines(self):
         for exc in (RuntimeError("lost ack"), Interrupt()):
             db._state.clear()
             with self.assertRaises(type(exc)):
-                call_save(FakeSession(fail={"CALL": [exc]}))
+                call_save(FakeSession(fail={"COMMIT": [exc]}))
             self.assertTrue(db.is_dirty())
 
-    def test_quarantine_is_healed_before_the_next_call(self):
-        s = FakeSession(fail={"CALL": [RuntimeError("lost ack")]})
+    def test_quarantine_is_healed_before_the_next_save(self):
+        s = FakeSession(fail={"COMMIT": [RuntimeError("lost ack")]})
         with self.assertRaises(RuntimeError):
             call_save(s)
         first = len(s.calls)
-        call_save(s, {"outcome": "committed", "metric_id": 1, "metric_revision": 4})
-        self.assertEqual(s.statements[first:], ["ROLLBACK", "SELECT CURRENT_TRANSACTION()",
-                                                "CALL AI_PLATFORM.WORKBENCH.save_metric(?)"])
+        call_save(s)
+        self.assertEqual(s.statements[first:first + 2], ["ROLLBACK", "SELECT CURRENT_TRANSACTION()"])
+        self.assertEqual(s.statements[-1], "COMMIT")
         self.assertFalse(db.is_dirty())
 
     def test_open_transaction_after_heal_blocks_all_work(self):
@@ -109,7 +166,7 @@ class SaveProcedureTests(unittest.TestCase):
             call_save(s)
         with self.assertRaises(db.ConnectionQuarantined), patch.object(db, "session", return_value=s):
             repo.list_metrics()
-        self.assertFalse(any("save_metric" in q or "metric" in q for q in s.statements))
+        self.assertFalse(any("metric" in q for q in s.statements))
 
     def test_sidebar_list_is_capped(self):
         s = FakeSession(rows={"FROM AI_PLATFORM.WORKBENCH.metric": []})
@@ -164,12 +221,12 @@ class LockTests(unittest.TestCase):
 
         def sql(text, params=None):
             result = real_sql(text, params)
-            if text.startswith("CALL"):
+            if "TRY_TO_NUMBER" in text:  # the save's first read
                 def slow(**_):
                     in_call.set()
                     release.wait(2)
                     order.append("write")
-                    return [[json.dumps({"outcome": "no_change", "metric_id": 1})]]
+                    return [[None] * 7]  # the metric moved: conflict, nothing else to write
                 result.collect.side_effect = slow
             return result
         s.sql = sql
@@ -191,8 +248,8 @@ class LockTests(unittest.TestCase):
     def test_database_reached_only_through_db(self):
         root = Path(__file__).resolve().parents[1]
         sources = {p.name: p.read_text() for p in [*root.glob("app/*.py"), root / "streamlit_app.py"]}
-        # Transactions live in the save procedure (sql/004); Python never opens one (DEC-021).
-        self.assertEqual({n for n, t in sources.items() if '"BEGIN"' in t}, set())
+        # The save is the only transaction, and it opens and ends inside repo.save_metric (DEC-025).
+        self.assertEqual({n for n, t in sources.items() if '"BEGIN"' in t}, {"repositories.py"})
         # session() hands out the raw connection; only db.py may call it (via locked_session).
         self.assertEqual({n for n, t in sources.items() if "session()" in t.replace("locked_session()", "")},
                          {"db.py"})

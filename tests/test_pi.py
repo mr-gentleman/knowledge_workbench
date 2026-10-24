@@ -1,20 +1,16 @@
 """Metric page save (DEC-020): the contract's acceptance list, driven through services.save_metric.
 
-The procedure (sql/009) can't run locally. Store below is an in-memory stand-in with the same
-contract (outcomes, all-or-nothing, replay markers); the SQL itself gets source checks and the live
-smoke test in docs/save-proc-handoff.md.
+Store below is an in-memory stand-in for repo.save_metric with the same contract (outcomes,
+all-or-nothing, replay markers). The transaction itself is tested against a fake session in
+test_concurrency.SaveTransactionTests and live on scratch hybrid tables (docs/hybrid-migration-handoff.md).
 """
 import copy
-import re
 import unittest
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import patch
 
-from app import services
 from app import repositories as repo
-
-SQL = (Path(__file__).resolve().parents[1] / "sql/009_one_metric_object.sql").read_text()
+from app import services
 
 
 def calc_row(calc_id, sql, disambig=None, revision=1, is_default=False, by="tester", status="active"):
@@ -222,33 +218,6 @@ class CalcRuleTests(unittest.TestCase):
         self.assertEqual(services.validation_state(row), "✓ Runs · rev 2")
         row["REVISION_NO"] = 3
         self.assertEqual(services.validation_state(row), "Not run")
-
-
-class ProcedureSourceTests(unittest.TestCase):
-    """The DDL isn't run locally; these pin the invariants the live smoke test then exercises."""
-
-    def body(self):
-        return SQL.split("$$")[1]
-
-    def test_invariants_are_present(self):
-        for needle in ("EXECUTE AS OWNER", "c.revision_no = r.exp_rev", "revision_no = :v_exp",
-                       "OBJECT_CONSTRUCT_KEEP_NULL(*)", "OBJECT_CONSTRUCT_KEEP_NULL(c.*)",
-                       "create_token = :v_token", "IFF(r.retire, 'retired', c.status)",
-                       "'conflict'", "'replayed'", "'committed'", "'no_change'", "'rolled_back'",
-                       "BEGIN TRANSACTION", "COMMIT", "ROLLBACK", "TO ROLE WORKBENCH_APP"):
-            self.assertIn(needle, SQL)
-        self.assertNotIn("CURRENT_USER", self.body())
-
-    def test_every_name_is_fully_qualified(self):
-        targets = re.findall(r"\b(?:FROM|JOIN|INTO|UPDATE)\s+([\w.]+)", self.body())
-        self.assertTrue(targets)
-        for name in targets:
-            self.assertTrue(name.startswith("AI_PLATFORM.WORKBENCH.") or name == "TABLE", name)
-
-    def test_request_keys_match_what_the_repository_sends(self):
-        for key in ("op_id", "actor", "lock_wait_ms", "schema_version", "change_note", "check_name"):
-            self.assertIn(f"req:{key}", self.body())
-        self.assertEqual(repo._SAVE_METRIC, "CALL AI_PLATFORM.WORKBENCH.save_metric(?)")
 
 
 if __name__ == "__main__":

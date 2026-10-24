@@ -27,6 +27,7 @@ Refresh when you merge to main or push a new branch. Live list:
 
 | Branch | What it does | Refs | State |
 |---|---|---|---|
+| claude/hybrid-tables | Saves ~3–5× faster: write tables become hybrid tables; the save is one Python transaction again; nightly backup copy | DEC-025, PLAT-10, PLAT-06 | Pushed, not merged; built on claude/unified-metric; needs sql/009 → 010 → 011 by CoCo, then a deploy |
 | claude/unified-metric | Candidate and canon become one `metric` row with one ID; status candidate → canon / rejected / retired; `legacy_id_map` | DEC-024 | Pushed, not merged; built on claude/implementations; needs sql/009 then a deploy |
 | claude/implementations | React PI section: live PIs load/save, oldest = default, labels with 2+, real read-only Run check; a check survives label edits (needs sql/007 + 008 by CoCo) | UX-02, UX-06, CHECK-01, CHECK-06, DEC-022, DEC-023 | Pushed; not merged; not deployed |
 | claude/sql-on-page | PI backend (create/edit/retire, run status); Streamlit SQL card dropped per DEC-018 | UX-01, UX-02, DEC-019 | Built on ux-quick-fixes |
