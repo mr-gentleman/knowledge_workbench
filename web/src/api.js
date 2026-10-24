@@ -19,3 +19,7 @@ export const getCandidate = id => call('GET', `/api/candidates/${id}`);
 // docs/plans/metric-save-contract.md (DEC-020): one call for the whole page. The spike sends no calcs yet.
 // body = { op_id, candidate, calcs }; resend the same op_id on Retry so a save that landed reports replayed.
 export const saveMetric = body => call('POST', '/api/metrics/save', body, 30000);
+export const listFactTables = () => call('GET', '/api/fact-tables');
+export const getFactTable = name => call('GET', `/api/fact-tables/${encodeURIComponent(name)}`);
+// body = { op_id, table: { table_name, expected_revision (null = create), fields } }; Retry resends the same op_id.
+export const saveFactTable = body => call('POST', '/api/fact-tables/save', body, 30000);

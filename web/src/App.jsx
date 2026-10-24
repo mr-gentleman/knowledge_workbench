@@ -196,15 +196,17 @@ export default function App() {
           </button>
         ))}
       </nav>
-      <Explorer
-        search={<SearchBox q={q} setQ={setQ} filter={filter} setFilter={setFilter} />}
-        visible={visible}
-        depts={depts}
-        q={q}
-        sel={sel}
-        pick={pick}
-      />
-      <main className="main">
+      {nav !== 'tables' && (
+        <Explorer
+          search={<SearchBox q={q} setQ={setQ} filter={filter} setFilter={setFilter} />}
+          visible={visible}
+          depts={depts}
+          q={q}
+          sel={sel}
+          pick={pick}
+        />
+      )}
+      <main className={'main' + (nav === 'tables' ? ' wide' : '')}>
         <div className={'banner' + (live.state === 'ok' ? ' live' : '')}>
           <span>
             {live.state === 'ok'
@@ -216,7 +218,7 @@ export default function App() {
           <span className="r">{me?.user ? `signed in as ${me.user}` : me?.error ? `identity: ${me.error}` : ''}</span>
         </div>
         {nav === 'tables' ? (
-          <FactTables />
+          <FactTables user={me?.user} flash={flash} />
         ) : nav !== 'metrics' ? (
           <div className="page">
             <div className="empty">Review queue would open here. The spike only covers the metric editor.</div>

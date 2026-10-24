@@ -305,7 +305,8 @@ def save_fact_table(actor: str, op_id: str, table: dict, change_note: str | None
     if fields["status"] not in ("active", "retired"):
         problems.append({"field": "status", "message": "Status is active or retired."})
     if problems:
-        return FactTableOutcome("invalid", "Nothing was saved — fix the marked fields.", name, problems=problems)
+        return FactTableOutcome("invalid", "Nothing was saved: " + " ".join(p["message"] for p in problems),
+                                name, problems=problems)
     try:
         res = repo.save_fact_table(op_id, actor, {"table_name": name, "expected_revision": expected,
                                                   "fields": fields}, change_note)

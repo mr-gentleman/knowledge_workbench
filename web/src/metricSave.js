@@ -1,4 +1,5 @@
-// The metric save (DEC-020): one optimistic, retryable save per metric.
+// The metric save (DEC-020): one optimistic, retryable save per metric. The fact-table screen
+// reuses it with its own `save` call (UX-04); `snap.name` labels messages either way.
 // The page shows the submitted values at once; "Saved" appears only after the server commits.
 import { useEffect, useState } from 'react';
 import { saveMetric } from './api.js';
@@ -34,6 +35,9 @@ export const saveBody = (m, orig) => ({
   calcs: [],
 });
 
+// The new revision: metric replies carry candidate_revision, fact-table replies revision_no.
+const revOf = out => out.candidate_revision ?? out.revision_no;
+
 // What a server reply means for the submitted snapshot `snap`.
 // → { failed: 'conflict' | 'failed', msg }   nothing was written (or unknown); keep the draft
 // → { saved: metric, wrote }                 committed; wrote = false for a no-op save
@@ -41,7 +45,7 @@ export function outcome(out, snap, user) {
   if (out.status === 'conflict' || out.status === 'invalid') return { failed: 'conflict', msg: `${snap.name}: ${out.message}` };
   if (out.status === 'failed') return { failed: 'failed', msg: `Couldn't save ${snap.name}. Your edits are kept. ${out.message}` };
   const wrote = out.status === 'saved' || out.status === 'replayed';
-  return { saved: { ...snap, rev: out.candidate_revision, updatedBy: wrote ? user : snap.updatedBy }, wrote };
+  return { saved: { ...snap, rev: revOf(out), updatedBy: wrote ? user : snap.updatedBy }, wrote };
 }
 
 const without = (o, key) => {
@@ -52,7 +56,7 @@ const without = (o, key) => {
 // pending[key] = { snap, body, state: 'saving' | 'failed' | 'conflict', msg }: the submitted snapshot.
 // justSaved[key] = { rev, ms }: the header's ✓ Saved pill, until the next Edit.
 // onSaved(key, snap, saved) is called once the server commits `snap` as `saved`.
-export function useMetricSave({ user, onSaved, flash }) {
+export function useMetricSave({ user, onSaved, flash, save = saveMetric }) {
   const [pending, setPending] = useState({});
   const [justSaved, setJustSaved] = useState({});
   const inFlight = Object.values(pending).some(p => p.state === 'saving');
@@ -75,7 +79,7 @@ export function useMetricSave({ user, onSaved, flash }) {
     store(key, { snap, body });
     let reply;
     try {
-      reply = await saveMetric(body);
+      reply = await save(body);
     } catch (e) {
       // Timeout or network error: the save may have landed. Retry with the same op_id finds out.
       return fail(
@@ -89,7 +93,7 @@ export function useMetricSave({ user, onSaved, flash }) {
     onSaved(key, snap, r.saved);
     settle(p => without(p, key));
     store(key, null);
-    if (r.wrote) setJustSaved(j => ({ ...j, [key]: { rev: out.candidate_revision, ms } }));
+    if (r.wrote) setJustSaved(j => ({ ...j, [key]: { rev: revOf(out), ms } }));
     else flash(`No changes · ${ms} ms`);
     if (out.warnings?.length) flash(out.warnings.join(' '));
   };
