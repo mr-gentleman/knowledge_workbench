@@ -69,6 +69,29 @@ At sprint end, record the lightweight engineering scorecard from [AGENTS.md](../
 
 ## Reliability / possible data-loss or duplicate-write defects
 
+### REV-01 — replay baseline fix (2026-10-23, #codex)
+
+Status: **VERIFY**, P1; branch `codex/replay-baseline-fix`. Implements REV-01 from
+[the engineering review](https://github.com/mr-gentleman/knowledge_workbench/pull/3).
+A replay now confirms success only if the current metric definition and touched PIs, or fact-table
+fields, match the submitted draft. A differing/missing record returns a conflict with no new baseline
+revisions, keeping the draft unsaved. This prevents an acknowledged-late revision 4 save from adopting
+someone else's revision 5 while still displaying revision 4 content. Matching retries remain successful;
+no additional write or schema change is needed. Retired PIs are compared by the retirement intent.
+
+Closed-tab recovery also persists/restores the original editing baseline alongside the pending request;
+fresh list results must not silently become the baseline for a recovered draft. Legacy recovery data
+without a baseline uses a null revision, requiring explicit reload before an existing record can be edited.
+
+Evidence: Python 3.11 tests, API tests and web tests/lint/build (counts in the PR). Eight regression
+failures reproduced against the old service code pass with the fix. A shared JSON response fixture is
+asserted by the real API/service tests and consumed by the React save-hook tests, verifying that a replay
+conflict preserves storage, draft and revision and never calls onSaved. Database operations remain mocked;
+no live Snowflake or published-browser test, paid Astra review, merge or deployment yet.
+
+Remaining separate work: REV-02 navigation/late-load draft handling and PLAT-12 CI dependency setup.
+The local test environment includes pinned streamlit-keyup 1.0.0 and httpx2 2.16.0; CI still lacks them.
+
 These are separate from history presentation improvements. An overwritten edit is a correctness issue; making a small edit easier to see in history is a UX issue.
 
 | ID | Status | Priority / scope | Task and acceptance check | Origin / evidence |

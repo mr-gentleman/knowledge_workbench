@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import './FactTables.css';
 import { getFactTable, listFactTables, saveFactTable } from './api.js';
-import { readStored, useMetricSave } from './metricSave.js';
+import { readStored, restoredBaseline, useMetricSave } from './metricSave.js';
 import { FACT } from './sample.js';
 
 // Every field the save writes (services.FACT_EDITABLE). All are sent, so fields the form doesn't show keep their values.
@@ -109,7 +109,7 @@ export default function FactTables({ user, flash }) {
         const drafts = list.map(t => (restored[t.key] ? restored[t.key].snap : t));
         const creates = stored.filter(([k]) => !list.some(t => t.key === k)).map(([, v]) => v.snap);
         setTables([...creates, ...drafts]);
-        setSaved(list);
+        setSaved(list.map(t => restoredBaseline(t, restored[t.key])));
         setSel([...creates, ...drafts][0]?.key ?? null);
         restore(restored);
         setLive({ state: 'ok', n: list.length, ms });
@@ -197,7 +197,7 @@ export default function FactTables({ user, flash }) {
       return flash(`Saved ${snap.name} (sample, not persisted)`);
     }
     // Optimistic: read mode with the submitted values now; "Saved" only once the server commits.
-    send(snap.key, { snap, body: saveBody(snap, orig) });
+    send(snap.key, { snap, body: saveBody(snap, orig), baseline: orig });
   };
 
   const visible = tables.filter(x => matchesTable(x, q));

@@ -2,8 +2,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { outcome, readStored, saveBody, useMetricSave } from './metricSave.js';
+import { outcome, readStored, restoredBaseline, saveBody, useMetricSave } from './metricSave.js';
+import { saveBody as factSaveBody } from './FactTables.jsx';
 import { saveMetric } from './api.js';
+import replayConflicts from '../../tests/fixtures/replay-conflicts.json';
 
 vi.mock('./api.js', () => ({ saveMetric: vi.fn() }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -74,6 +76,23 @@ describe('saveBody', () => {
     expect(b.metric).toMatchObject({ id: 7, expected_revision: 3 });
     expect(saveBody(snap, snap).op_id).not.toBe(b.op_id);
   });
+
+  it('never takes a fresh server revision as the baseline of a restored draft', () => {
+    const draft = { ...snap, description: 'Mine' };
+    const stored = { snap: draft, body: saveBody(draft, snap), baseline: snap };
+    const baseline = restoredBaseline({ ...snap, description: 'Theirs', rev: 5 }, stored);
+    expect(saveBody(draft, baseline).metric.expected_revision).toBe(3);
+    expect(baseline.description).toBe(snap.description);
+    const table = { name: 'AC.FINANCE.MRR', grain: 'weekly', rev: 3 };
+    const tableBaseline = restoredBaseline({ ...table, grain: 'daily', rev: 5 }, { baseline: table });
+    expect(factSaveBody(table, tableBaseline).table.expected_revision).toBe(3);
+  });
+
+  it('refuses to adopt the current revision for legacy recovery data without a baseline', () => {
+    const row = { ...snap, rev: 5 };
+    expect(restoredBaseline(row)).toBe(row);
+    expect(restoredBaseline(row, { snap, body: saveBody(snap, snap) }).rev).toBeNull();
+  });
 });
 
 // Renders the hook and exposes its latest return value.
@@ -97,6 +116,37 @@ describe('useMetricSave', () => {
     localStorage.clear();
     saveMetric.mockReset();
   });
+
+  it.each(Object.entries(replayConflicts))(
+    'preserves the %s draft and baseline after a lost response and intervening edit',
+    async (kind, response) => {
+      // api.test_api asserts these exact responses from the real API/service code.
+      const onSaved = vi.fn();
+      const save = vi.fn().mockRejectedValueOnce(new Error('lost response')).mockResolvedValueOnce({ data: response, ms: 50 });
+      const h = mount({ user: 'ME', onSaved, flash: vi.fn(), save });
+      const draft =
+        kind === 'metric'
+          ? { ...snap, pis: [{ id: 5, sql: 'SELECT mine', rev: 2, validatedRev: 2, check: 'passed' }] }
+          : { key: 't:AC.FINANCE.MRR', name: 'AC.FINANCE.MRR', grain: 'My edit', rev: 3 };
+      const body =
+        kind === 'metric'
+          ? saveBody(draft, { ...draft, pis: [] })
+          : { op_id: crypto.randomUUID(), table: { table_name: draft.name, expected_revision: 3, fields: { grain: draft.grain } } };
+      const baseline = { ...draft, rev: 3 };
+      await act(() => h.send(draft.key, { snap: draft, body, baseline }));
+      await act(() => h.send(draft.key, h.pending[draft.key]));
+      expect(save.mock.calls[1][0]).toBe(body);
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(h.pending[draft.key]).toMatchObject({ state: 'conflict', snap: draft, body });
+      expect(h.pending[draft.key].msg).toContain('earlier save went through');
+      expect(h.justSaved[draft.key]).toBeUndefined();
+      expect(readStored()[draft.key]).toEqual({ snap: draft, body, baseline });
+      const recovered = restoredBaseline({ ...draft, rev: 5 }, readStored()[draft.key]);
+      expect(recovered.rev).toBe(3);
+      expect(draft.rev).toBe(3);
+      if (kind === 'metric') expect(draft.pis[0]).toMatchObject({ rev: 2, validatedRev: 2 });
+    },
+  );
 
   it('keeps the draft stored until the server confirms', async () => {
     const onSaved = vi.fn();

@@ -171,13 +171,58 @@ class MetricSaveTests(unittest.TestCase):
         self.assertEqual(retry.calc_revisions, {9: 1})
         self.assertEqual([i for t, i, *_ in self.revisions_after_setup()], [9])  # inserted once
 
-    def test_retry_with_newer_edits_reports_the_earlier_save_and_keeps_the_draft_unsaved(self):
+    def test_retry_with_newer_edits_keeps_the_draft_unsaved(self):
         self.store.lose_next_ack = True
         self.save([self.pi(9, "SELECT 3", "weekly", expected=None)])
         retry = self.save([self.pi(9, "SELECT 4", "weekly", expected=None)])
-        self.assertEqual(retry.status, "saved")
-        self.assertIn("earlier save did go through", retry.warnings[0])
+        self.assertEqual(retry.status, "conflict")
+        self.assertIsNone(retry.metric_revision)
+        self.assertEqual(retry.calc_revisions, {})
+        self.assertIn("earlier save went through", retry.message)
         self.assertEqual(self.store.calcs[9]["SQL_TEXT"], "SELECT 3")
+
+    def test_replay_after_another_editor_changes_definition_cannot_advance_baseline(self):
+        self.store.lose_next_ack = True
+        self.assertEqual(self.save(description="Mine").status, "failed")
+        self.store.cand.update(DESCRIPTION="Theirs", REVISION_NO=3, UPDATED_BY="OTHER")
+        before = copy.deepcopy(self.store.cand)
+        retry = self.save(description="Mine")
+        self.assertEqual(retry.status, "conflict")
+        self.assertIsNone(retry.metric_revision)
+        self.assertEqual(retry.calc_revisions, {})
+        # Reopening the draft and saving again still uses its original revision, so it conflicts.
+        self.assertEqual(self.save(op_id="op2", description="Mine", category="New category").status, "conflict")
+        self.assertEqual(self.store.cand, before)
+
+    def test_replay_after_another_editor_changes_sql_cannot_advance_pi_baseline(self):
+        self.store.lose_next_ack = True
+        draft = [self.pi(7, "SELECT 10", "daily")]
+        self.assertEqual(self.save(draft).status, "failed")
+        self.store.calcs[7].update(SQL_TEXT="SELECT 20", REVISION_NO=3,
+                                   VALIDATED_REVISION_NO=3, VALIDATION_STATUS="failed")
+        retry = self.save(draft)
+        self.assertEqual((retry.status, retry.metric_revision, retry.calc_revisions), ("conflict", None, {}))
+        self.assertEqual(self.store.calcs[7]["SQL_TEXT"], "SELECT 20")
+
+    def test_replay_with_missing_or_retired_pi_never_confirms_an_active_draft(self):
+        draft = [self.pi(7, "SELECT 10", "daily")]
+        self.save(draft)
+        self.store.calcs[7]["STATUS"] = "retired"
+        self.assertEqual(self.save(draft).status, "conflict")
+        del self.store.calcs[7]
+        self.assertEqual(self.save(draft).status, "conflict")
+
+    def test_replay_with_missing_metric_is_a_conflict(self):
+        self.save(description="Mine")
+        with patch.object(repo, "get_metric", return_value=None):
+            retry = self.save(description="Mine")
+        self.assertEqual((retry.status, retry.metric_revision), ("conflict", None))
+
+    def test_matching_replay_normalizes_blanks_and_confirms_retirement(self):
+        draft = [self.pi(8, "SELECT 2", "monthly", retire=True)]
+        self.save(draft, category="")
+        retry = self.save(draft, category=None)
+        self.assertEqual((retry.status, retry.calc_revisions), ("saved", {8: 2}))
 
     def test_no_op_save_is_no_change_without_revisions(self):
         out = self.save([self.pi(7, "SELECT 1 ", "daily")])

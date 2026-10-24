@@ -1,0 +1,21 @@
+{
+  "metric": {
+    "status": "conflict",
+    "message": "Your earlier save went through, but the current saved version differs from this draft. Your draft is kept; reload and review the saved version before saving again.",
+    "metric_id": 7,
+    "metric_revision": null,
+    "calc_revisions": {},
+    "problems": [],
+    "conflicts": [],
+    "warnings": [],
+    "checks_due": []
+  },
+  "fact_table": {
+    "status": "conflict",
+    "message": "Your earlier save went through, but the current saved version differs from this draft. Your draft is kept; reload and review the saved version before saving again.",
+    "table_name": "AC.FINANCE.MRR",
+    "revision_no": null,
+    "problems": [],
+    "conflict": null
+  }
+}

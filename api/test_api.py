@@ -1,6 +1,8 @@
 """API wiring tests: identity from the trusted header, outcomes passed through.
 Repositories are faked (as in tests/); this proves nothing about Snowflake or SPCS ingress."""
+import json
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from fastapi.testclient import TestClient
@@ -11,6 +13,8 @@ from api import main, spcs
 BODY = {"metric": {"id": 7, "expected_revision": 3, "fields": {"full_name": "Net New ARR", "description": "New"}}}
 URL = "/api/metrics/save"
 COMMITTED = {"outcome": "committed", "metric_id": 7, "metric_revision": 4}
+REPLAY_CONFLICTS = json.loads((Path(__file__).resolve().parents[1] /
+                             "tests/fixtures/replay-conflicts.json").read_text())
 
 
 class ApiTest(unittest.TestCase):
@@ -52,8 +56,30 @@ class ApiTest(unittest.TestCase):
         self.save.return_value = {"outcome": "no_change", "metric_id": 7, "metric_revision": 3}
         self.assertEqual(self.post(**{spcs.USER_HEADER: "CLENZINI"}).json()["status"], "no_change")
 
+    def test_replayed_metric_response_matches_frontend_contract(self):
+        self.save.return_value = {"outcome": "replayed", "metric_id": 7}
+        latest = {**{k.upper(): None for k in main.services.EDITABLE},
+                  "FULL_NAME": "Net New ARR", "DESCRIPTION": "Someone else's edit", "REVISION_NO": 5}
+        with mock.patch.object(main.repo, "get_metric", return_value=latest):
+            response = self.post({**BODY, "op_id": "lost-response"}, **{spcs.USER_HEADER: "CLENZINI"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), REPLAY_CONFLICTS["metric"])
+        self.assertEqual(self.save.call_args.args[2]["expected_revision"], 3)
+
 
 class FactTablesTest(unittest.TestCase):
+    def test_replayed_fact_table_response_matches_frontend_contract(self):
+        latest = {**{k.upper(): None for k in main.services.FACT_EDITABLE},
+                  "STATUS": "active", "GRAIN": "Someone else's edit", "REVISION_NO": 5}
+        with mock.patch.object(spcs, "IN_SPCS", True), \
+             mock.patch.object(main.repo, "save_fact_table", return_value={"outcome": "replayed"}), \
+             mock.patch.object(main.repo, "get_fact_table", return_value=latest):
+            response = TestClient(main.api).post("/api/fact-tables/save", headers={spcs.USER_HEADER: "CLENZINI"},
+                json={"op_id": "lost-response", "table": {"table_name": "AC.FINANCE.MRR",
+                      "expected_revision": 3, "fields": {"grain": "My edit"}}})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), REPLAY_CONFLICTS["fact_table"])
+
     def test_list_has_lower_case_keys(self):
         rows = [Row(TABLE_NAME="AC.FINANCE.MRR", GRAIN="one row per account per day", STATUS="active")]
         with mock.patch.object(main.repo, "list_fact_tables", return_value=rows):
