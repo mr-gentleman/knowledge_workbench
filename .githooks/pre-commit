@@ -1,0 +1,28 @@
+#!/bin/sh
+# Blocks commits that sweep in dependencies, build output or oversized files.
+# See AGENTS.md → Collaboration. Bypass only with Chris's OK: git commit --no-verify
+max_files=200
+max_bytes=1000000
+
+added=$(git diff --cached --name-only --diff-filter=A)
+fail=0
+
+junk=$(printf '%s\n' "$added" | grep -E '(^|/)(node_modules|dist|\.venv|__pycache__|\.ruff_cache)/')
+if [ -n "$junk" ]; then
+  echo "pre-commit: staged dependency/build files ($(printf '%s\n' "$junk" | wc -l | tr -d ' '), e.g. $(printf '%s\n' "$junk" | head -1))." >&2
+  fail=1
+fi
+
+count=$(printf '%s\n' "$added" | grep -c .)
+if [ "$count" -gt "$max_files" ]; then
+  echo "pre-commit: $count new files staged (limit $max_files). Stage explicit paths, not 'git add -A'." >&2
+  fail=1
+fi
+
+for f in $(git diff --cached --name-only --diff-filter=AM); do
+  size=$(git cat-file -s ":$f" 2>/dev/null) || continue
+  [ "$size" -gt "$max_bytes" ] && echo "pre-commit: $f is $size bytes (limit $max_bytes)." >&2 && fail=1
+done
+
+[ "$fail" -eq 0 ] || echo "Unstage with 'git restore --staged <path>', check 'git status', retry." >&2
+exit "$fail"
