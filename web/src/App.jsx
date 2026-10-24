@@ -6,7 +6,7 @@ import PiSection from './PiSection.jsx';
 import SearchBox, { search } from './SearchBox.jsx';
 import { SAMPLE_CANON } from './sample.js';
 import { checkPi, getMe, getMetric, listMetrics, reservePi } from './api.js';
-import { readStored, saveBody, useMetricSave } from './metricSave.js';
+import { readStored, restoredBaseline, saveBody, useMetricSave } from './metricSave.js';
 import { fromCalc, piChanged, runState } from './pis.js';
 
 const DEPT_LABEL = d => (d ? d[0].toUpperCase() + d.slice(1) : 'Unassigned');
@@ -100,7 +100,7 @@ export default function App() {
           return stored[c.key].snap;
         });
         setData(drafts);
-        setSaved(cands);
+        setSaved(cands.map(c => restoredBaseline(c, stored[c.key])));
         restore(restored);
         setLive({ state: 'ok', n: cands.length, ms });
       })
@@ -167,7 +167,7 @@ export default function App() {
     // Optimistic: back to read mode with the submitted values now; "Saved" only once the server commits.
     setEditing(false);
     setError('');
-    send(m.key, { snap: m, body: saveBody(m, orig) });
+    send(m.key, { snap: m, body: saveBody(m, orig), baseline: orig });
   };
   const openDraft = key => {
     dismiss(key);

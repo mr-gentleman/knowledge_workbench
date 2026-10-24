@@ -25,6 +25,10 @@ const store = (key, v) => {
   }
 };
 
+// Restoring a submitted draft must also restore the baseline it was edited against.
+// Older stored drafts have no baseline: a null revision refuses edits until an explicit reload.
+export const restoredBaseline = (row, pending) => (pending ? (pending.baseline ?? { ...row, rev: null }) : row);
+
 // The request for saving draft `m` against its last saved revision. A new op_id per save; Retry reuses it.
 export const saveBody = (m, orig) => ({
   op_id: crypto.randomUUID(),
@@ -81,11 +85,11 @@ export function useMetricSave({ user, onSaved, flash, save = saveMetric }) {
   }, [inFlight]);
 
   // One in-flight save per metric (Edit is disabled meanwhile). Retry resends the same body, so the same op_id.
-  const send = async (key, { snap, body }) => {
+  const send = async (key, { snap, body, baseline }) => {
     const settle = patch => setPending(p => (p[key]?.body.op_id === body.op_id ? patch(p) : p)); // ignore stale replies
-    const fail = (state, msg) => settle(p => ({ ...p, [key]: { snap, body, state, msg } }));
-    setPending(p => ({ ...p, [key]: { snap, body, state: 'saving' } }));
-    store(key, { snap, body });
+    const fail = (state, msg) => settle(p => ({ ...p, [key]: { snap, body, baseline, state, msg } }));
+    setPending(p => ({ ...p, [key]: { snap, body, baseline, state: 'saving' } }));
+    store(key, { snap, body, baseline });
     let reply;
     try {
       reply = await save(body);

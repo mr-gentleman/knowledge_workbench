@@ -297,20 +297,30 @@ def _conflict_entry(record, record_id, expected: int, latest: dict | None,
 
 
 def _metric_replayed(mid: int, draft: dict, calcs: list[dict]) -> MetricOutcome:
-    """An earlier attempt of this save landed without its acknowledgement. Report what landed;
-    if the draft has changed since, say so — the caller keeps the newer edits as unsaved."""
+    """Confirm a retry only when its content matches the revisions returned as its baseline.
+    A replay marker proves an earlier write landed, not that today's rows still match it."""
     landed = repo.get_metric(mid)
-    differs = any((landed[k.upper()] or None) != (draft["fields"].get(k) or None) for k in EDITABLE)
+    differs = landed is None or any(
+        (landed[k.upper()] or None) != (draft["fields"].get(k) or None) for k in EDITABLE)
     revisions = {}
     for c in calcs:
+        if c["expected_revision"] is None and c["retire"]:
+            continue  # added and removed in the same draft: the repository never wrote it
         row = repo.get_calc(c["calc_id"])
-        if row is None:
+        if row is None or row["METRIC_ID"] != mid:
+            differs = True
             continue
         revisions[c["calc_id"]] = row["REVISION_NO"]
-        differs = differs or (row["STATUS"] == "active") == c["retire"] or bool(calc_changed(row, c["fields"]))
-    warnings = [("Your earlier save did go through. Your newer changes are still in the draft — "
-                 "Save again to apply them.")] if differs else []
-    return MetricOutcome("saved", "Saved.", mid, landed["REVISION_NO"], revisions, warnings=warnings)
+        differs = differs or row["STATUS"] != ("retired" if c["retire"] else "active") or (
+            not c["retire"] and bool(calc_changed(row, c["fields"])))
+    if differs:
+        # No revision numbers: the client must not bless old draft content with a newer revision.
+        return MetricOutcome("conflict", REPLAY_CONFLICT, mid)
+    return MetricOutcome("saved", "Saved.", mid, landed["REVISION_NO"], revisions)
+
+
+REPLAY_CONFLICT = ("Your earlier save went through, but the current saved version differs from this "
+                   "draft. Your draft is kept; reload and review the saved version before saving again.")
 
 
 # ── fact tables (UX-04): one record, keyed on its 3-part name ─────────────────
@@ -369,7 +379,10 @@ def save_fact_table(actor: str, op_id: str, table: dict, change_note: str | None
                                     "were editing. Your edits are still in the draft.", name, conflict=entry)
         if res["outcome"] == "replayed":
             landed = repo.get_fact_table(name)
-            return FactTableOutcome("saved", "Saved.", name, landed and landed["REVISION_NO"])
+            if landed is None or any((landed[k.upper()] or None) != (fields.get(k) or None)
+                                     for k in FACT_EDITABLE):
+                return FactTableOutcome("conflict", REPLAY_CONFLICT, name)
+            return FactTableOutcome("saved", "Saved.", name, landed["REVISION_NO"])
     except ConnectionQuarantined as exc:
         return FactTableOutcome("failed", f"Not saved: {exc} Your draft is kept.", name)
     except Exception:

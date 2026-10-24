@@ -50,10 +50,26 @@ class SaveFactTableTests(unittest.TestCase):
         self.assertEqual((out.status, out.conflict["changed_fields"]), ("conflict", ["Grain"]))
         self.assertIn("ALICE changed AC.FINANCE.MRR (Grain)", out.message)
 
-    def test_replay_reports_the_revision_that_landed(self):
+    def test_matching_replay_reports_a_revision_with_matching_content(self):
         with patch.object(repo, "get_fact_table", return_value=row(2)):
             out, _ = save({}, result={"outcome": "replayed", "table_name": NAME})
         self.assertEqual((out.status, out.revision_no), ("saved", 2))
+
+    def test_replay_after_another_edit_keeps_the_original_baseline(self):
+        with patch.object(repo, "get_fact_table", return_value=row(3, by="OTHER", grain="daily")):
+            out, _ = save({"grain": "weekly"}, result={"outcome": "replayed", "table_name": NAME})
+        self.assertEqual((out.status, out.revision_no), ("conflict", None))
+        self.assertIn("earlier save went through", out.message)
+
+    def test_replay_after_retirement_is_a_conflict(self):
+        with patch.object(repo, "get_fact_table", return_value=row(3, status="retired")):
+            out, _ = save({}, result={"outcome": "replayed", "table_name": NAME})
+        self.assertEqual((out.status, out.revision_no), ("conflict", None))
+
+    def test_replay_after_deletion_is_a_conflict(self):
+        with patch.object(repo, "get_fact_table", return_value=None):
+            out, _ = save({}, result={"outcome": "replayed", "table_name": NAME})
+        self.assertEqual((out.status, out.revision_no), ("conflict", None))
 
     def test_no_change_keeps_the_revision(self):
         out, _ = save({}, expected=4, result={"outcome": "no_change", "table_name": NAME, "revision_no": 4})
