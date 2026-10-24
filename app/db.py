@@ -1,5 +1,4 @@
 """Snowflake session, the process-wide lock, and trusted viewer identity."""
-import json
 import logging
 import os
 import threading
@@ -27,7 +26,7 @@ def _state() -> dict:
     """One per app process (cache_resource survives reruns). Every viewer shares one
     Snowflake connection, so an open transaction is visible to — and joinable by — any
     other statement on it. See docs/decisions.md DEC-004, DEC-007."""
-    return {"lock": threading.RLock(), "dirty": False, "tag": "", "tag_ok": True}
+    return {"lock": threading.RLock(), "dirty": False}
 
 
 def db_lock() -> threading.RLock:
@@ -64,27 +63,14 @@ def locked_session():
         s = session()
         if _state()["dirty"]:
             _heal(s)
-        if _state()["tag"]:
-            set_tag(s, None)  # ops always clear their tag; one still set means that clear failed
         yield s
 
 
-def set_tag(s, tag: dict | None):
-    """Best effort: attribution must never block work. Skipped when unchanged; None unsets,
-    so reads after a write aren't attributed to that write's operation."""
-    state = _state()
-    text = json.dumps(tag, sort_keys=True) if tag else ""
-    if not state["tag_ok"] or state["tag"] == text:
-        return
-    try:
-        s.query_tag = text
-        state["tag"] = text
-    except Exception:
-        # Never set successfully → treat as unsupported here and stop trying. Otherwise a
-        # tag may be outstanding: keep state["tag"] so the next locked_session retries the clear.
-        if not state["tag"] and text:
-            state["tag_ok"] = False
-        log.exception("QUERY_TAG update failed")
+def check_connection(timeout_s: int):
+    """A fresh connection for one SQL check (sql/007), used outside db_lock so a slow check never
+    blocks saves; it opens no transaction and writes nothing. api/main.py provides it (DEC-022);
+    the frozen Streamlit app has none."""
+    raise NotImplementedError("SQL checks run only in the React app.")
 
 
 def viewer() -> str:

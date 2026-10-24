@@ -1,0 +1,23 @@
+# SPCS service spec for the spike. IMAGE_TAG is substituted by deploy.sh.
+spec:
+  containers:
+    - name: web
+      image: /ai_platform/workbench/kw_images/kw-spike:IMAGE_TAG
+      env:
+        SNOWFLAKE_WAREHOUSE: BIZ_AI_WH
+      resources:
+        requests: { cpu: 0.5, memory: 1Gi }
+        limits: { cpu: 1, memory: 2Gi }
+      readinessProbe:
+        port: 8080
+        path: /healthz
+  endpoints:
+    - name: ui
+      port: 8080
+      public: true        # browser access behind Snowflake login
+capabilities:
+  securityContext:
+    executeAsCaller: true # ingress passes Sf-Context-Current-User-Token (caller's-rights check)
+serviceRoles:
+  - name: kw_user
+    endpoints: [ui]

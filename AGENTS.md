@@ -1,7 +1,7 @@
 # Shared engineering instructions
 
 Applies throughout Knowledge Workbench to Codex, Claude, and human contributors.
-Requested by #chris; recorded by #codex 2026-10-21; revised by #claude 2026-10-21.
+Requested by #chris; recorded by #codex 2026-10-21; revised by #claude 2026-10-21 and 2026-10-23 (React).
 
 ## Orientation — read before design work
 
@@ -14,6 +14,8 @@ It replaces the Google Sheets maintenance path.
 2. [docs/plans/streamlit-app-technical-build-plan.md](docs/plans/streamlit-app-technical-build-plan.md) — wins over the master plan on conflicts.
 3. [docs/handoff-2026-10-16.md](docs/handoff-2026-10-16.md) "Decisions made" — settled schema/lifecycle choices; don't relitigate. Wins over both plans.
 4. [docs/features.md](docs/features.md) — current tasks and status.
+
+The two plans predate React (DEC-018): their scope, terminology and lifecycle still hold; their Streamlit UI specifics don't.
 
 ## Philosophy
 
@@ -32,29 +34,28 @@ new dependencies and abstraction layers; remove superseded code.**
 
 ## Project facts
 
-- Streamlit in Snowflake, **container runtime** (Python 3.11, Streamlit ≥ 1.50).
-  Compute pool `SYSTEM_COMPUTE_POOL_CPU` runs Python; warehouse `BIZ_AI_WH` runs SQL.
-- Connect with `st.connection("snowflake").session()` — not `get_active_session()`.
-- Acting user comes from `st.user` — never a form field, never `CURRENT_USER()`
-  (in the deployed app that can be the service user).
-- The app runs with **owner's rights** as `WORKBENCH_APP`, which writes only
-  `AI_PLATFORM.WORKBENCH`. Never grant it anything on `AI_PLATFORM.DICTIONARY`.
-- Packages: the app has `snowflake.snowpark.pypi_shared_repository` attached, so
-  adding a PyPI package to `pyproject.toml` works (`SNOWFLAKE.PYPI_REPOSITORY_USER`
-  reaches WORKBENCH_APP via PUBLIC). Pin versions with `==`.
-- **Streamlit reruns the whole page on every click.** Every query on the page runs
-  on every interaction — that's the main latency lever.
-- Deploy from the repo only: `scripts/deploy.sh` (wraps `snow streamlit deploy --replace -c workbench_deploy`)
-  (Snowflake CLI >= 3.30; `snowflake.yml` lists the artifacts, including `pyproject.toml`).
-- Tests: `python -m unittest discover -s tests -v` (Python 3.11 + `streamlit>=1.50`). Page tests fake
-  `app/repositories.py`; transaction tests run the real repository against a fake session that
-  records statements. Neither proves Snowflake behavior — that needs a live check.
+- **The app is React + FastAPI on Snowpark Container Services** (DEC-018; #chris 2026-10-23: "100% all
+  in React"). `web/` = Vite + React 18 front end; `api/` = FastAPI, which reuses `app/` (services,
+  repositories, db) unchanged; `deploy/` = image, service spec, `deploy/deploy.sh`. Service
+  `AI_PLATFORM.WORKBENCH.KW_SPIKE` on `KW_SPIKE_POOL`, warehouse `BIZ_AI_WH`.
+- **The Streamlit app (`streamlit_app.py`, `app/editor_spike.py`) is frozen.**
+  No new UI work there; fix only what blocks people still using it until cutover, then delete it.
+- Acting user comes from the `Sf-Context-Current-User` header that SPCS ingress sets (`api/spcs.viewer`) —
+  never a request field, never `CURRENT_USER()`. `KW_DEV_USER` stands in only outside SPCS.
+- Database work runs with **owner's rights** as `WORKBENCH_APP`, which writes only `AI_PLATFORM.WORKBENCH`.
+  Never grant it anything on `AI_PLATFORM.DICTIONARY`.
 - **Every database call goes through `db.locked_session()`** (or `db.query`, which uses it): it holds
   `db_lock` and refuses work on a connection that isn't proven clean (DEC-007, DEC-008). A test fails
   if anything else calls `session()`.
+- Python packages are pinned with `==` (`api/requirements.txt`); npm packages with exact versions (`web/package.json`).
+- Local run: `cd web && npm ci && npx vite` (falls back to sample data without the API); with the API:
+  `PYTHONPATH=. KW_DEV_USER=<you> uvicorn api.main:api --port 8080` and `npx vite` proxies `/api` to it.
+- Checks before calling a change done: `python -m unittest discover -s tests` (Python 3.11) and, for
+  `web/`, `npm run lint && npm test && npm run build`. Page and transaction tests fake Snowflake; they
+  don't prove Snowflake behavior — that needs a live check.
 - Health readout: `scripts/health.sh` (size, complexity, lint, tests, feature counts, change since
   last run). Paste its delta into the PR template's "Health delta" section.
-- Schema changes: add a new numbered file in `sql/`; never edit a shipped one.
+- Schema changes: add a new numbered file in `sql/`; never edit a shipped one. DDL is run by CoCo.
 - **Fully qualify every object name** (`AI_PLATFORM.WORKBENCH.op_log`) in migrations, handoffs and
   ad-hoc SQL. Never rely on `USE` — it silently doesn't take in some tools (CoCo, 2026-10-23).
 
@@ -62,14 +63,19 @@ new dependencies and abstraction layers; remove superseded code.**
 
 | Layer | Owns | Never contains |
 |---|---|---|
-| `streamlit_app.py` (page) | Layout, widgets, per-user draft + baseline state | SQL, business rules |
-| `app/services.py` | Workflow rules: save, no-op, conflicts, readiness, promotion | SQL, Streamlit widgets |
+| `web/src/<Area>.jsx` (one file per screen area) | Layout, widgets, that area's local UI state | Fetch calls, save/retry logic, business rules |
+| `web/src/App.jsx` | Page shell: which metric is open, edit mode, wiring areas together | Area-specific markup |
+| `web/src/metricSave.js` | Optimistic save, retry with the same `op_id`, closed-tab restore | Markup |
+| `web/src/api.js` | HTTP calls to `/api` | State, rules |
+| `api/` | HTTP routes, request/response models, viewer identity | SQL, business rules |
+| `app/services.py` | Workflow rules: save, no-op, conflicts, readiness, promotion | SQL, HTTP or UI code |
 | `app/repositories.py` | Parameterized SQL, conditional updates, transactions, history snapshots | Business decisions |
-| `app/db.py` | Session, the process-wide lock, connection health, query tag, trusted identity | Anything else |
+| `app/db.py` | Session, the process-wide lock, connection health, query tag | Anything else |
 | `sql/` | Ordered migrations | Edits to shipped files |
 
-All statements in one transaction use the same session. A screen may coordinate
-several records without merging their layers.
+All statements in one transaction use the same session. A screen may coordinate several records
+without merging their layers. Each area's styling goes in its own `<Area>.css` imported by the
+component; `styles.css` holds only shared tokens and base styles.
 
 ## Bloat check — every change
 
@@ -78,11 +84,11 @@ Answer before calling a change done. In the commit/PR summary write
 
 | Check | Question | Red flags |
 |---|---|---|
-| **Separation of concerns** | Is each line in the layer that owns it (table above)? | SQL in the page; a rule decided in two places; services importing Streamlit |
+| **Separation of concerns** | Is each line in the layer that owns it (table above)? | SQL or fetch calls in a component; a rule decided in two places; services importing a web framework |
 | **Modularity** | Can this change be understood by reading one or two files? | A one-field change touching 4+ files; new module or class with a single caller |
 | **Verbosity** | Could it be markedly shorter with nothing lost? | Wrappers that only forward; comments restating code; checks for impossible states; options nobody uses |
 | **Complexity** | Can save → validate → write → history be followed in one read? | Nesting deeper than 3; boolean flags that switch a function's behavior; clever one-liners |
-| **Latency** | How many queries does one click now cost? | Query in a loop; the same row fetched twice per rerun; unbounded `SELECT` with no `LIMIT`; loading data for a tab nobody opened |
+| **Latency** | How many queries does one click now cost? | Query in a loop; the same row fetched twice per click; unbounded `SELECT` with no `LIMIT`; loading data for a screen nobody opened |
 | **Dependencies** | Is a new package worth a platform change? | Package for something ~20 lines of code would do |
 | **Dead code** | Did anything become unused? | Old helpers left behind; commented-out code; a second copy of the same logic |
 
