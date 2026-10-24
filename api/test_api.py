@@ -52,7 +52,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.post(**{spcs.USER_HEADER: "CLENZINI"}).json()["status"], "no_change")
 
 
-CALC = {"CALC_ID": 5, "STATUS": "active", "REVISION_NO": 3, "SQL_TEXT": "SELECT 1 AS one;\n"}
+CALC = {"CALC_ID": 5, "STATUS": "active", "REVISION_NO": 3, "SQL_TEXT": "SELECT 1 AS one -- n\n;\n-- done\n/* x */ ;\n"}
 USER = {spcs.USER_HEADER: "CLENZINI"}
 
 
