@@ -23,21 +23,39 @@ $ENGINE build --platform linux/amd64 -f deploy/Dockerfile -t "$REPO_URL/kw-spike
 $ENGINE push "$REPO_URL/kw-spike:$TAG"
 t1=$(date +%s)
 
+# Deploy, wait for the new image to be READY, list the endpoint: one SQL file, so one SSO login
+# (a poll per `snow` call meant a new browser login every 5 s).
+SVC=AI_PLATFORM.WORKBENCH.KW_SPIKE
 if [[ "${1:-}" == "--create" ]]; then
-  snow spcs service create AI_PLATFORM.WORKBENCH.KW_SPIKE -c "$CONN" \
-    --compute-pool "$POOL" --spec-path "$SPEC" --query-warehouse BIZ_AI_WH
+  DEPLOY="CREATE SERVICE $SVC IN COMPUTE POOL $POOL QUERY_WAREHOUSE = BIZ_AI_WH"
 else
-  snow spcs service upgrade AI_PLATFORM.WORKBENCH.KW_SPIKE -c "$CONN" --spec-path "$SPEC"
+  DEPLOY="ALTER SERVICE $SVC"
 fi
-# Wait for the new container to be ready (upgrade is a rolling restart).
-for i in $(seq 60); do  # up to ~5 min
-  status=$(snow sql -c "$CONN" --format json -q \
-    "SELECT SYSTEM\$GET_SERVICE_STATUS('AI_PLATFORM.WORKBENCH.KW_SPIKE')" | grep -o '\\"status\\": *\\"[A-Z_]*' | head -1)
-  echo "status: $status"
-  [[ "$status" == *READY* ]] && break
-  [[ "$status" == *FAILED* ]] && { echo "service FAILED; see: snow spcs service logs AI_PLATFORM.WORKBENCH.KW_SPIKE --container-name web --instance-id 0 -c $CONN"; exit 1; }
-  sleep 5
-done
+SQL=$(mktemp)
+cat > "$SQL" <<SQLEOF
+$DEPLOY FROM SPECIFICATION \$\$
+$(cat "$SPEC")
+\$\$;
+-- Rolling restart: done once the container on image $TAG is READY (up to ~5 min).
+EXECUTE IMMEDIATE \$\$
+DECLARE s STRING; i INT DEFAULT 0;
+BEGIN
+  LOOP
+    s := SYSTEM\$GET_SERVICE_STATUS('$SVC');
+    IF ((CONTAINS(s, 'kw-spike:$TAG') AND CONTAINS(s, '"READY"')) OR CONTAINS(s, '"FAILED"') OR i >= 60) THEN
+      RETURN s;
+    END IF;
+    SELECT SYSTEM\$WAIT(5);
+    i := i + 1;
+  END LOOP;
+END;
+\$\$;
+SHOW ENDPOINTS IN SERVICE $SVC;
+SQLEOF
+out=$(snow sql -c "$CONN" -f "$SQL")
+echo "$out"
 t2=$(date +%s)
 echo "image $TAG: build+push $((t1 - t0))s, rollout $((t2 - t1))s"
-snow sql -c "$CONN" -q "SHOW ENDPOINTS IN SERVICE AI_PLATFORM.WORKBENCH.KW_SPIKE"
+# Match the status JSON, not the echoed SQL (which also names the tag and READY).
+[[ "$out" == *"kw-spike:$TAG\",\"restartCount"* && "$out" == *'"status":"READY"'* ]] \
+  || { echo "not READY on $TAG; see: snow spcs service logs $SVC --container-name web --instance-id 0 -c $CONN"; exit 1; }

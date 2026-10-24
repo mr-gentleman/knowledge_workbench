@@ -27,8 +27,8 @@ def list_metrics(search: str = ""):
     """Most recently updated first. The page filters this list as you type; search here
     only once the list is capped."""
     return query(
-        f"""SELECT metric_id, full_name, description, disambig, category, status,
-                   original_author, updated_by, updated_at
+        f"""SELECT metric_id, full_name, description, disambig, department, category, status,
+                   revision_no, source, original_author, updated_by, updated_at
             FROM {SCHEMA}.metric
             WHERE ? = '' OR (full_name || ' ' || COALESCE(description, '') || ' ' || COALESCE(disambig, '')) ILIKE '%' || ? || '%'
             ORDER BY updated_at DESC

@@ -3,7 +3,7 @@ import DefinitionSection from './DefinitionSection.jsx';
 import Explorer from './Explorer.jsx';
 import FactTables from './FactTables.jsx';
 import PiSection from './PiSection.jsx';
-import SearchBox, { matches } from './SearchBox.jsx';
+import SearchBox, { search } from './SearchBox.jsx';
 import { SAMPLE_CANON } from './sample.js';
 import { checkPi, getMe, getMetric, listMetrics, reservePi } from './api.js';
 import { readStored, saveBody, useMetricSave } from './metricSave.js';
@@ -27,8 +27,8 @@ const fromRow = r => ({
   source: r.SOURCE,
   author: r.ORIGINAL_AUTHOR || '—',
   updatedBy: r.UPDATED_BY,
-  description: '',
-  disambig: '',
+  description: r.DESCRIPTION || '',
+  disambig: r.DISAMBIG || '',
   pis: [],
   loaded: false,
 });
@@ -54,9 +54,10 @@ const Icon = {
 };
 
 export default function App() {
-  const [data, setData] = useState(SAMPLE_CANON);
-  const [saved, setSaved] = useState(SAMPLE_CANON);
-  const [sel, setSel] = useState('nrr');
+  // Live metrics only; the sample canon stands in when the API can't be reached (local dev).
+  const [data, setData] = useState([]);
+  const [saved, setSaved] = useState([]);
+  const [sel, setSel] = useState(null);
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
   const [openPi, setOpenPi] = useState(1);
@@ -98,18 +99,23 @@ export default function App() {
           };
           return stored[c.key].snap;
         });
-        setData(d => [...d, ...drafts]);
-        setSaved(s => [...s, ...cands]);
+        setData(drafts);
+        setSaved(cands);
         restore(restored);
         setLive({ state: 'ok', n: cands.length, ms });
       })
-      .catch(e => setLive({ state: 'error', msg: e.message }));
+      .catch(e => {
+        setData(SAMPLE_CANON);
+        setSaved(SAMPLE_CANON);
+        setSel('nrr');
+        setLive({ state: 'error', msg: e.message });
+      });
   }, [restore]); // restore is setState: stable, so this runs once
 
   const m = data.find(x => x.key === sel);
   const pend = m && pending[m.key];
   const orig = saved.find(x => x.key === sel);
-  const visible = data.filter(x => matches(x, q, filter));
+  const visible = search(data, q, filter);
   const depts = [...new Set(data.map(x => x.dept))];
 
   const setM = patch => setData(d => d.map(x => (x.key === sel ? { ...x, ...patch } : x)));
@@ -142,7 +148,7 @@ export default function App() {
     getMetric(t.mid)
       .then(({ data: r, ms }) => {
         const pis = r.CALCS.map(fromCalc);
-        const nm = { ...fromRow(r), description: r.DESCRIPTION || '', disambig: r.DISAMBIG || '', pis, loaded: true, loadMs: ms };
+        const nm = { ...fromRow(r), pis, loaded: true, loadMs: ms };
         setData(d => replace(d, nm));
         setSaved(s => replace(s, nm));
         setOpenPi(pis[0]?.id ?? null);
@@ -224,19 +230,20 @@ export default function App() {
       </nav>
       {nav !== 'tables' && (
         <Explorer
-          search={<SearchBox q={q} setQ={setQ} filter={filter} setFilter={setFilter} />}
+          search={<SearchBox q={q} setQ={setQ} filter={filter} setFilter={setFilter} count={visible.length} />}
           visible={visible}
           depts={depts}
           q={q}
           sel={sel}
           pick={pick}
+          unsaved={data.filter(x => pending[x.key] || x !== saved.find(s => s.key === x.key)).map(x => x.key)}
         />
       )}
       <main className={'main' + (nav === 'tables' ? ' wide' : '')}>
         <div className={'banner' + (live.state === 'ok' ? ' live' : '')}>
           <span>
             {live.state === 'ok'
-              ? `Metrics are live from AI_PLATFORM.WORKBENCH (${live.n}, ${live.ms} ms). Sample metrics are not saved.`
+              ? `Metrics are live from AI_PLATFORM.WORKBENCH (${live.n}, ${live.ms} ms).`
               : live.state === 'error'
                 ? `Couldn't reach the API: ${live.msg}. Showing sample data only.`
                 : 'Loading metrics…'}
@@ -249,112 +256,114 @@ export default function App() {
           <div className="page">
             <div className="empty">Review queue would open here. The spike only covers the metric editor.</div>
           </div>
-        ) : (
-          m && (
-            <div className="page">
-              <div className="crumbs">
-                {m.dept} / {m.category || 'Uncategorized'}
-              </div>
-              <div className="title">
-                <h1>{m.name}</h1>
-                {m.kind === 'canon' ? (
-                  <span className="badge canon">Canon · #{m.id}</span>
-                ) : (
-                  <span className="badge cand">Candidate · #{m.id}</span>
-                )}
-                {pend?.state === 'saving' && (
-                  <span className="saving" role="status">
-                    Saving
-                    <span className="dots" aria-hidden="true">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                  </span>
-                )}
-                {justSaved[m.key] && (
-                  <span className="savedpill" role="status">
-                    <span className="check">✓</span> Saved · rev {justSaved[m.key].rev} · {(justSaved[m.key].ms / 1000).toFixed(1)} s
-                  </span>
-                )}
-                {!editing && (
-                  <span className="titleactions">
-                    {m.kind === 'cand' ? (
-                      <button className="btn" disabled={missing.length > 0 || !!pend}>
-                        Promote to canon
-                      </button>
-                    ) : null}
-                    <button
-                      className="btn primary"
-                      onClick={() => openDraft(m.key)}
-                      disabled={(m.live && !m.loaded) || pend?.state === 'saving'}
-                    >
-                      Edit
-                    </button>
-                  </span>
-                )}
-              </div>
-              <div className="meta">
-                <span>
-                  Revision <b>{m.rev}</b>
-                </span>
-                <span>
-                  Source <b>{m.source}</b>
-                </span>
-                <span>
-                  Original author <b>{m.author}</b>
-                </span>
-                {m.live ? (
-                  <span>
-                    Last saved by <b>{m.updatedBy}</b>
-                  </span>
-                ) : (
-                  <span>
-                    Slug <b>{m.key}</b>
-                  </span>
-                )}
-                {m.loadMs ? (
-                  <span>
-                    Loaded in <b>{m.loadMs} ms</b>
-                  </span>
-                ) : null}
-              </div>
-              {Object.entries(pending)
-                .filter(([, p]) => p.state !== 'saving')
-                .map(([k, p]) => (
-                  <div key={k} className="error savefail" role="alert">
-                    <span>{p.msg}</span>
-                    {p.state === 'failed' && (
-                      <button className="btn" onClick={() => send(k, p)}>
-                        Retry
-                      </button>
-                    )}
-                    <button className="btn" onClick={() => openDraft(k)}>
-                      Open my draft
-                    </button>
-                  </div>
-                ))}
-              {error && (
-                <div className="error" role="alert">
-                  {error}
-                </div>
-              )}
-              {missing.length ? <div className="missing">Can't promote to canon yet. Still needs {missing.join(' and ')}.</div> : null}
-
-              <DefinitionSection m={m} editing={editing} setM={setM} changed={changed} />
-
-              <PiSection
-                m={m}
-                orig={orig}
-                editing={editing}
-                setM={setM}
-                openPi={openPi}
-                setOpenPi={setOpenPi}
-                newPiId={m.live ? () => reservePi().then(r => r.data.calc_id) : async () => Date.now()}
-                check={m.live ? (id, rev) => runCheck(m.key, id, rev) : null}
-              />
+        ) : m ? (
+          <div className="page">
+            <div className="crumbs">
+              {m.dept} / {m.category || 'Uncategorized'}
             </div>
-          )
+            <div className="title">
+              <h1>{m.name}</h1>
+              {m.kind === 'canon' ? (
+                <span className="badge canon">Canon · #{m.id}</span>
+              ) : (
+                <span className="badge cand">Candidate · #{m.id}</span>
+              )}
+              {pend?.state === 'saving' && (
+                <span className="saving" role="status">
+                  Saving
+                  <span className="dots" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </span>
+              )}
+              {justSaved[m.key] && (
+                <span className="savedpill" role="status">
+                  <span className="check">✓</span> Saved · rev {justSaved[m.key].rev} · {(justSaved[m.key].ms / 1000).toFixed(1)} s
+                </span>
+              )}
+              {!editing && (
+                <span className="titleactions">
+                  {m.kind === 'cand' ? (
+                    <button className="btn" disabled={missing.length > 0 || !!pend}>
+                      Promote to canon
+                    </button>
+                  ) : null}
+                  <button
+                    className="btn primary"
+                    onClick={() => openDraft(m.key)}
+                    disabled={(m.live && !m.loaded) || pend?.state === 'saving'}
+                  >
+                    Edit
+                  </button>
+                </span>
+              )}
+            </div>
+            <div className="meta">
+              <span>
+                Revision <b>{m.rev}</b>
+              </span>
+              <span>
+                Source <b>{m.source}</b>
+              </span>
+              <span>
+                Original author <b>{m.author}</b>
+              </span>
+              {m.live ? (
+                <span>
+                  Last saved by <b>{m.updatedBy}</b>
+                </span>
+              ) : (
+                <span>
+                  Slug <b>{m.key}</b>
+                </span>
+              )}
+              {m.loadMs ? (
+                <span>
+                  Loaded in <b>{m.loadMs} ms</b>
+                </span>
+              ) : null}
+            </div>
+            {Object.entries(pending)
+              .filter(([, p]) => p.state !== 'saving')
+              .map(([k, p]) => (
+                <div key={k} className="error savefail" role="alert">
+                  <span>{p.msg}</span>
+                  {p.state === 'failed' && (
+                    <button className="btn" onClick={() => send(k, p)}>
+                      Retry
+                    </button>
+                  )}
+                  <button className="btn" onClick={() => openDraft(k)}>
+                    Open my draft
+                  </button>
+                </div>
+              ))}
+            {error && (
+              <div className="error" role="alert">
+                {error}
+              </div>
+            )}
+            {missing.length ? <div className="missing">Can't promote to canon yet. Still needs {missing.join(' and ')}.</div> : null}
+
+            <DefinitionSection m={m} editing={editing} setM={setM} changed={changed} />
+
+            <PiSection
+              m={m}
+              orig={orig}
+              editing={editing}
+              setM={setM}
+              openPi={openPi}
+              setOpenPi={setOpenPi}
+              newPiId={m.live ? () => reservePi().then(r => r.data.calc_id) : async () => Date.now()}
+              check={m.live ? (id, rev) => runCheck(m.key, id, rev) : null}
+            />
+          </div>
+        ) : (
+          <div className="page">
+            <div className="empty">Pick a metric on the left.</div>
+          </div>
         )}
         {nav === 'metrics' && m && editing && (
           <div className="savebar">
