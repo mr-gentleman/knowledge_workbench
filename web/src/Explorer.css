@@ -1,0 +1,132 @@
+.explorer {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.exhead {
+  padding: 16px 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.exhead h2 {
+  margin: 0;
+  font: 600 15px var(--sans);
+}
+.tree {
+  overflow: auto;
+  padding: 8px 6px 20px;
+  flex: 1;
+}
+.folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: 600 12px var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 8px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.folder .count {
+  margin-left: auto;
+  color: var(--muted);
+  font: 500 11px var(--mono);
+}
+.caret {
+  transition: transform 0.15s;
+  color: var(--muted);
+}
+.caret.open {
+  transform: rotate(90deg);
+}
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  padding: 7px 8px 7px 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: 14px var(--sans);
+}
+.item:hover {
+  background: var(--sunk);
+}
+.item.on {
+  background: var(--accent-soft);
+}
+.item .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.item mark {
+  background: var(--warn-soft);
+  color: inherit;
+  border-radius: 2px;
+}
+.item .live {
+  font: 500 10px var(--mono);
+  color: var(--ok);
+}
+.item .noname {
+  color: var(--muted);
+  font: 11px var(--sans);
+  white-space: nowrap;
+}
+
+/* Status dots: canon = solid blue, candidate = hollow berry ring, unsaved = amber. */
+.dot {
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  flex: none;
+}
+.dot.canon {
+  background: var(--accent);
+}
+.dot.cand {
+  border: 2px solid var(--berry);
+}
+.dot.draft {
+  background: var(--warn);
+  box-shadow: 0 0 0 2px var(--warn-soft);
+}
+.legend {
+  display: flex;
+  gap: 12px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font: 11px var(--sans);
+}
+.legend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+@media (max-width: 860px) {
+  .explorer {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    max-height: 300px;
+  }
+}

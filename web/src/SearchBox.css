@@ -1,0 +1,67 @@
+.searchbox {
+  position: relative;
+}
+.search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 52px 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px var(--sans);
+}
+.searchbox .kbd,
+.searchbox .clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.searchbox .kbd {
+  pointer-events: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 5px;
+  color: var(--muted);
+  font: 500 11px var(--mono);
+}
+.searchbox .clear {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 16px var(--sans);
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.searchbox .clear:hover {
+  background: var(--sunk);
+  color: var(--fg);
+}
+.chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.chip {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 99px;
+  padding: 3px 10px;
+  font: 500 12px var(--sans);
+  cursor: pointer;
+}
+.chip.on {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--panel);
+}
+.chips .hits {
+  margin-left: auto;
+  color: var(--muted);
+  font: 500 11px var(--mono);
+}

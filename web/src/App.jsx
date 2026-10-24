@@ -3,7 +3,7 @@ import DefinitionSection from './DefinitionSection.jsx';
 import Explorer from './Explorer.jsx';
 import FactTables from './FactTables.jsx';
 import PiSection from './PiSection.jsx';
-import SearchBox, { matches } from './SearchBox.jsx';
+import SearchBox, { search } from './SearchBox.jsx';
 import { SAMPLE_CANON } from './sample.js';
 import { getCandidate, getMe, listCandidates } from './api.js';
 import { readStored, saveBody, useMetricSave } from './metricSave.js';
@@ -26,8 +26,8 @@ const fromRow = r => ({
   source: r.SOURCE,
   author: r.ORIGINAL_AUTHOR || '—',
   updatedBy: r.UPDATED_BY,
-  description: '',
-  disambig: '',
+  description: r.DESCRIPTION || '',
+  disambig: r.DISAMBIG || '',
   pis: [],
   loaded: false,
 });
@@ -108,7 +108,7 @@ export default function App() {
   const m = data.find(x => x.key === sel);
   const pend = m && pending[m.key];
   const orig = saved.find(x => x.key === sel);
-  const visible = data.filter(x => matches(x, q, filter));
+  const visible = search(data, q, filter);
   const depts = [...new Set(data.map(x => x.dept))];
 
   const setM = patch => setData(d => d.map(x => (x.key === sel ? { ...x, ...patch } : x)));
@@ -136,7 +136,7 @@ export default function App() {
     if (!t.live || pending[k]) return; // a refresh would overwrite the unconfirmed draft
     getCandidate(t.cid)
       .then(({ data: r, ms }) => {
-        const nm = { ...fromRow(r), description: r.DESCRIPTION || '', disambig: r.DISAMBIG || '', loaded: true, loadMs: ms };
+        const nm = { ...fromRow(r), loaded: true, loadMs: ms };
         setData(d => replace(d, nm));
         setSaved(s => replace(s, nm));
       })
@@ -197,12 +197,13 @@ export default function App() {
         ))}
       </nav>
       <Explorer
-        search={<SearchBox q={q} setQ={setQ} filter={filter} setFilter={setFilter} />}
+        search={<SearchBox q={q} setQ={setQ} filter={filter} setFilter={setFilter} count={visible.length} />}
         visible={visible}
         depts={depts}
         q={q}
         sel={sel}
         pick={pick}
+        unsaved={data.filter(x => pending[x.key] || x !== saved.find(s => s.key === x.key)).map(x => x.key)}
       />
       <main className="main">
         <div className={'banner' + (live.state === 'ok' ? ' live' : '')}>
