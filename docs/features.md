@@ -242,3 +242,34 @@ Scope: `main` at f1800e7 plus a since-dropped Claude REL-01 branch (superseded b
 | Dependencies | Green | Runtime-shipped packages only. |
 | Dead code / duplication | Yellow | `streamlit_app_single.py` is now generated (now `scripts/build_single.py`), but nothing checks bundle drift before deploy → PLAT-01. `just_created` is written and never read → REL-02. |
 | Correctness | Yellow | REL-01 fixed (cece660), not yet verified in Snowflake or the published app; REL-02 open. Later the same day: shared-connection transactions found (REL-06, DEC-004) and stale baseline on reopen (REL-07). |
+
+### 2026-10-23 — React/core review (#codex)
+
+Reviewed main at `99a6068420cabdf88d569d1332e531af46346c2c`: React editing/save/search, API, services, repository transactions, connection handling, tests, deployment and current documentation. Overall engineering judgment: **B-** for this early internal application; code structure B, readiness C+. No live Snowflake or published-browser verification. Source findings are not claims of observed production incidents.
+
+Evidence: current GitHub run 40051038303: web lint/test/build passed; Python ran 58 tests with 15 errors (missing st_keyup), API tests skipped. Local full Python run blocked by absent Streamlit/Snowflake dependencies. A focused Node execution of the actual outcome() function confirmed that old snapshot content is marked saved with a supplied newer revision; the complete replay/lost-update scenario below is source-traced, not a live reproduction.
+
+| Check | Rating | Evidence / smallest useful fix |
+|---|---|---|
+| Separation of concerns | Yellow | API/service/repository split is useful, but FactTables.jsx owns loading, restoration, editing and rendering; API monkey-patches db globals and db imports Streamlit. REV-04. |
+| Modularity | Yellow | Area components and shared save hook are useful. App.jsx ~396 lines and FactTables.jsx ~433 combine substantial state transitions with rendering. Extract coherent editor-state logic after behavior tests; avoid a generic CRUD framework. REV-04. |
+| Verbosity | Green | Core Python/JS is reasonably direct. Largest repository function is ~130 lines, mostly explicit transactional SQL. No speculative class hierarchy. |
+| Complexity | Red | Replay handling can pair old submitted content with the current database revision. Draft navigation/loading can overwrite edits. REV-01/02. |
+| Latency | Yellow | One process-wide connection/lock serializes ordinary DB operations; SQL checks use a separate connection. No load test conducted. Search cap hides records. REV-03/06. |
+| Dependencies | Yellow | FastAPI runtime still imports Streamlit; CI test dependency gap confirmed. REV-04 and existing PLAT-12. |
+| Dead code / duplication | Yellow | Frozen Streamlit UI/helpers and live sample behavior remain. Historical migrations are legitimate history, not removable duplication. Sample preview and stale documentation need explicit cleanup. REV-04/05/07. |
+
+Review follow-ups (TODO; source review unless otherwise stated):
+
+| ID | Priority | Finding, consequence, smallest fix and acceptance |
+|---|---|---|
+| REV-01 | P1 | **Replay must preserve a matching content/revision baseline.** services._metric_replayed reads the current row, returns its current revision and a warning when content differs; save_fact_table similarly returns the current revision. metricSave.outcome stamps that revision onto the submitted snapshot, and send calls onSaved and clears stored recovery state. Scenario: A commits rev 4 but loses response; B commits rev 5; A retries and is shown its old values as saved rev 5. A subsequent unrelated edit can overwrite B's fields without a conflict. Return an exact committed snapshot/revision or a current authoritative baseline with an explicit reconciliation state; preserve unaccepted draft differences. Test the whole service-to-hook sequence, including changed SQL validation state and fact tables. |
+| REV-02 | P1 | **Protect drafts from navigation and late loads.** App.pick refreshes whenever there is no pending save, even when the record has unsaved edits; A edit -> B -> A replaces A's draft. FactTables unmounts on rail navigation, losing unsubmitted local edits; reload can resolve after Edit begins and replace the draft. Keep dirty drafts or explicitly confirm discard; gate late responses by request/editor generation. Component tests must exercise edit/navigation/reopen and delayed detail responses. |
+| REV-03 | P2 | **Search must cover the registry.** repository.list_metrics caps at 200; web listMetrics accepts no search argument and SearchBox searches only loaded data. SQL search only sees PIs of metrics opened earlier. Wire search/pagination to the API, apply visible-status filtering before limiting, and test a match beyond row 200 plus SQL in an unopened metric. |
+| REV-04 | P2 | **Complete the framework cutover and clarify boundaries.** Replace Streamlit cache_resource state with a plain DB module, configure the adapter explicitly, then remove frozen UI/helpers/dependencies when cutover permits. Extract fact-table state/loading as one coherent hook; retain the simple service/repository structure. Legacy compatibility is temporary debt, not evidence every retained line is useless. |
+| REV-05 | P1 before SME use | **Separate demonstrations from live behavior.** SqlEditor.fakeRun creates sample rows and random timings (output is labeled sample, but button says Run preview); API load failures switch into editable sample data. Promote to canon can be enabled without an onClick handler. Disable/label unfinished actions and gate sample mode explicitly. Existing CHECK-07 and UX-10 cover parts of this work. |
+| REV-06 | P2 / measure first | **Establish concurrency capacity.** Measure several users opening/saving concurrently and lock wait p95. Keep the lock while one connection is shared. Introduce independently owned connections only if measurements justify it; then revalidate cross-process atomicity and replay guarantees before adding workers/replicas. |
+| REV-07 | P2 | **Refresh current-state documentation.** Multiple code/doc links point to absent docs/plans/metric-save-contract.md; PLAT-11 still says not deployed while changelog reports the merged deployment. Keep historical evidence dated, add a short authoritative current architecture/deployment summary, and correct broken references. |
+| REV-08 | P1 | **Restore a trustworthy test gate.** Complete existing PLAT-12; ensure Python and API checks run from a clean install. Add integrated React workflow coverage for REV-01/02, rather than treating pure helpers, mocked repository behavior or legacy Streamlit UI tests as proof of the current React flow. |
+
+Recommended order: REV-01/02 and PLAT-12, then REV-03/05, then cutover cleanup. Keep historical SQL migrations and useful benchmark evidence. No broad rewrite recommended.
