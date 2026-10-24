@@ -24,8 +24,8 @@ Live in `AI_PLATFORM.WORKBENCH` today: old `metric_candidate` (5 test rows), `me
 - **DEC-023** a check survives edits that don't change the SQL; the oldest active PI is always the default.
 - **DEC-024** one metric object, one ID for life; legacy IDs only in `legacy_id_map`.
 - **To write — DEC-025:** #chris chose hybrid tables + the save back in Python. That **supersedes DEC-021** (keeps DEC-020's
-  all-or-nothing). Consequence: every save procedure (004/008/009's `save_metric`, 005's `save_fact_table`) becomes a Python
-  transaction in `app/repositories.py`.
+  all-or-nothing). Decided: the metric save (`save_metric`, 004/008/009) becomes a Python transaction in
+  `app/repositories.py`. **Pending §4.2:** whether `save_fact_table` (005) moves too; until then it stays a procedure.
 
 ## 3. Proposal — merge and ship order
 
@@ -54,7 +54,9 @@ Between the migration and the deploy the live app can't list or save metrics —
 - Promotion (LIFE-01) is unbuilt: now a status flip candidate → canon + `promote` revision, gated on description,
   ≥1 passing PI, unique canon name (#claude, after step 4).
 - CI's Python jobs likely fail: `api/requirements.txt` lacks `httpx2` (FastAPI TestClient) and `streamlit-keyup` (tests). Add a test requirements file (any lane).
-- Is sql/007 + 008 live? Run `SHOW PROCEDURES IN SCHEMA AI_PLATFORM.WORKBENCH;` → expect `RUN_CHECK`, `SAVE_METRIC`, `SAVE_FACT_TABLE` (#chris).
+- Is sql/007 + 008 live? Names alone can't tell 008 from 004. Check the definition:
+  `SELECT GET_DDL('procedure', 'AI_PLATFORM.WORKBENCH.save_metric(VARCHAR)') ILIKE '%validated_revision_no = IFF(%';` → TRUE means 008;
+  `SHOW PROCEDURES LIKE 'RUN_CHECK' IN SCHEMA AI_PLATFORM.WORKBENCH;` → one row means 007. Stays "not verified" until both pass (#chris).
 - Evals: keyed on legacy IDs today, quality poor; free to redesign, remap via `legacy_id_map` (later).
 - UX-08 "Suggest" button (AI-drafted department/description): idea, not scheduled.
 
