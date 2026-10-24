@@ -53,9 +53,10 @@ const Icon = {
 };
 
 export default function App() {
-  const [data, setData] = useState(SAMPLE_CANON);
-  const [saved, setSaved] = useState(SAMPLE_CANON);
-  const [sel, setSel] = useState('nrr');
+  // Live candidates only; the sample canon stands in when the API can't be reached (local dev).
+  const [data, setData] = useState([]);
+  const [saved, setSaved] = useState([]);
+  const [sel, setSel] = useState(null);
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
   const [openPi, setOpenPi] = useState(1);
@@ -97,12 +98,17 @@ export default function App() {
           };
           return stored[c.key].snap;
         });
-        setData(d => [...d, ...drafts]);
-        setSaved(s => [...s, ...cands]);
+        setData(drafts);
+        setSaved(cands);
         restore(restored);
         setLive({ state: 'ok', n: cands.length, ms });
       })
-      .catch(e => setLive({ state: 'error', msg: e.message }));
+      .catch(e => {
+        setData(SAMPLE_CANON);
+        setSaved(SAMPLE_CANON);
+        setSel('nrr');
+        setLive({ state: 'error', msg: e.message });
+      });
   }, [restore]); // restore is setState: stable, so this runs once
 
   const m = data.find(x => x.key === sel);
@@ -209,7 +215,7 @@ export default function App() {
         <div className={'banner' + (live.state === 'ok' ? ' live' : '')}>
           <span>
             {live.state === 'ok'
-              ? `Candidates are live from AI_PLATFORM.WORKBENCH (${live.n} open, ${live.ms} ms). Canon is sample data.`
+              ? `Candidates are live from AI_PLATFORM.WORKBENCH (${live.n} open, ${live.ms} ms).`
               : live.state === 'error'
                 ? `Couldn't reach the API: ${live.msg}. Showing sample data only.`
                 : 'Loading candidates…'}
@@ -222,103 +228,105 @@ export default function App() {
           <div className="page">
             <div className="empty">Review queue would open here. The spike only covers the metric editor.</div>
           </div>
-        ) : (
-          m && (
-            <div className="page">
-              <div className="crumbs">
-                {m.dept} / {m.category || 'Uncategorized'}
-              </div>
-              <div className="title">
-                <h1>{m.name}</h1>
-                {m.kind === 'canon' ? (
-                  <span className="badge canon">Canon · #{m.id}</span>
-                ) : (
-                  <span className="badge cand">Candidate · {m.id}</span>
-                )}
-                {pend?.state === 'saving' && (
-                  <span className="saving" role="status">
-                    Saving
-                    <span className="dots" aria-hidden="true">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                  </span>
-                )}
-                {justSaved[m.key] && (
-                  <span className="savedpill" role="status">
-                    <span className="check">✓</span> Saved · rev {justSaved[m.key].rev} · {(justSaved[m.key].ms / 1000).toFixed(1)} s
-                  </span>
-                )}
-                {!editing && (
-                  <span className="titleactions">
-                    {m.kind === 'cand' ? (
-                      <button className="btn" disabled={missing.length > 0 || !!pend}>
-                        Promote to canon
-                      </button>
-                    ) : null}
-                    <button
-                      className="btn primary"
-                      onClick={() => openDraft(m.key)}
-                      disabled={(m.live && !m.loaded) || pend?.state === 'saving'}
-                    >
-                      Edit
-                    </button>
-                  </span>
-                )}
-              </div>
-              <div className="meta">
-                <span>
-                  Revision <b>{m.rev}</b>
-                </span>
-                <span>
-                  Source <b>{m.source}</b>
-                </span>
-                <span>
-                  Original author <b>{m.author}</b>
-                </span>
-                {m.live ? (
-                  <span>
-                    Last saved by <b>{m.updatedBy}</b>
-                  </span>
-                ) : (
-                  <span>
-                    Slug <b>{m.key}</b>
-                  </span>
-                )}
-                {m.loadMs ? (
-                  <span>
-                    Loaded in <b>{m.loadMs} ms</b>
-                  </span>
-                ) : null}
-              </div>
-              {Object.entries(pending)
-                .filter(([, p]) => p.state !== 'saving')
-                .map(([k, p]) => (
-                  <div key={k} className="error savefail" role="alert">
-                    <span>{p.msg}</span>
-                    {p.state === 'failed' && (
-                      <button className="btn" onClick={() => send(k, p)}>
-                        Retry
-                      </button>
-                    )}
-                    <button className="btn" onClick={() => openDraft(k)}>
-                      Open my draft
-                    </button>
-                  </div>
-                ))}
-              {error && (
-                <div className="error" role="alert">
-                  {error}
-                </div>
-              )}
-              {missing.length ? <div className="missing">Can't promote to canon yet. Still needs {missing.join(' and ')}.</div> : null}
-
-              <DefinitionSection m={m} editing={editing} setM={setM} changed={changed} />
-
-              <PiSection m={m} orig={orig} editing={editing} setM={setM} openPi={openPi} setOpenPi={setOpenPi} />
+        ) : m ? (
+          <div className="page">
+            <div className="crumbs">
+              {m.dept} / {m.category || 'Uncategorized'}
             </div>
-          )
+            <div className="title">
+              <h1>{m.name}</h1>
+              {m.kind === 'canon' ? (
+                <span className="badge canon">Canon · #{m.id}</span>
+              ) : (
+                <span className="badge cand">Candidate · {m.id}</span>
+              )}
+              {pend?.state === 'saving' && (
+                <span className="saving" role="status">
+                  Saving
+                  <span className="dots" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </span>
+              )}
+              {justSaved[m.key] && (
+                <span className="savedpill" role="status">
+                  <span className="check">✓</span> Saved · rev {justSaved[m.key].rev} · {(justSaved[m.key].ms / 1000).toFixed(1)} s
+                </span>
+              )}
+              {!editing && (
+                <span className="titleactions">
+                  {m.kind === 'cand' ? (
+                    <button className="btn" disabled={missing.length > 0 || !!pend}>
+                      Promote to canon
+                    </button>
+                  ) : null}
+                  <button
+                    className="btn primary"
+                    onClick={() => openDraft(m.key)}
+                    disabled={(m.live && !m.loaded) || pend?.state === 'saving'}
+                  >
+                    Edit
+                  </button>
+                </span>
+              )}
+            </div>
+            <div className="meta">
+              <span>
+                Revision <b>{m.rev}</b>
+              </span>
+              <span>
+                Source <b>{m.source}</b>
+              </span>
+              <span>
+                Original author <b>{m.author}</b>
+              </span>
+              {m.live ? (
+                <span>
+                  Last saved by <b>{m.updatedBy}</b>
+                </span>
+              ) : (
+                <span>
+                  Slug <b>{m.key}</b>
+                </span>
+              )}
+              {m.loadMs ? (
+                <span>
+                  Loaded in <b>{m.loadMs} ms</b>
+                </span>
+              ) : null}
+            </div>
+            {Object.entries(pending)
+              .filter(([, p]) => p.state !== 'saving')
+              .map(([k, p]) => (
+                <div key={k} className="error savefail" role="alert">
+                  <span>{p.msg}</span>
+                  {p.state === 'failed' && (
+                    <button className="btn" onClick={() => send(k, p)}>
+                      Retry
+                    </button>
+                  )}
+                  <button className="btn" onClick={() => openDraft(k)}>
+                    Open my draft
+                  </button>
+                </div>
+              ))}
+            {error && (
+              <div className="error" role="alert">
+                {error}
+              </div>
+            )}
+            {missing.length ? <div className="missing">Can't promote to canon yet. Still needs {missing.join(' and ')}.</div> : null}
+
+            <DefinitionSection m={m} editing={editing} setM={setM} changed={changed} />
+
+            <PiSection m={m} orig={orig} editing={editing} setM={setM} openPi={openPi} setOpenPi={setOpenPi} />
+          </div>
+        ) : (
+          <div className="page">
+            <div className="empty">Pick a metric on the left.</div>
+          </div>
         )}
         {nav === 'metrics' && m && editing && (
           <div className="savebar">
