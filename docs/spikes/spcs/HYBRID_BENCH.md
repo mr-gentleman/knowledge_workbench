@@ -79,3 +79,32 @@ Mitigation (untested): a scheduled task that copies the three hybrid tables nigh
 1. One new `sql/00N_hybrid_tables.sql`: hybrid `metric_candidate`, `metric_calc`, `revision`, and `op_log` with a surrogate key. Copy, rename, re-grant, then a backup task into standard tables.
 2. Measure a save from the SPCS app (`op_log.duration_ms`) to confirm < 1 s.
 3. Revoke the bench grant: `REVOKE CREATE TABLE, CREATE HYBRID TABLE ON SCHEMA AI_PLATFORM.WORKBENCH FROM ROLE WORKBENCH_APP;`
+
+## Save path: procedure vs Python statements (2026-10-23, second run)
+
+#claude · script [bench/save_path_bench.py](bench/save_path_bench.py), summary [bench/summarize_save_path.py](bench/summarize_save_path.py), raw data [bench/save-path-results-2026-10-23.json](bench/save-path-results-2026-10-23.json)
+
+**Evidence kind:** local run against Snowflake from Chris's laptop, session `5296369439968387`, role WORKBENCH_APP, warehouse BIZ_AI_WH; 15 interleaved rounds per variant and shape after a warm-up; scratch tables `zz_sp_*` dropped at the end. Not run from SPCS.
+
+The first run benchmarked a toy save. This one runs the real one. **P** runs sql/004's body unchanged as an anonymous ("inline") procedure, `WITH save_metric AS PROCEDURE … CALL`. **Py** runs the same steps as client statements: a replay + change-check read, BEGIN, conditional UPDATEs, revision snapshots + op_log in one `INSERT ALL`, COMMIT. Both then do the app's refresh reads (candidate, its PIs, sidebar list). Shapes: a definition-only edit, and a definition + one PI SQL edit. Hybrid scratch tables use the migration's planned keys: op_log `log_id DEFAULT UUID_STRING()` PK plus indexes on `op_id`, `create_token` and `origin_candidate_id`. All created without error.
+
+**Same behaviour on all four:** a stale revision gives `conflict` with nothing written; resending the same `op_id` gives `replayed`.
+
+| Variant | save p50 | p95 | refresh p50 | statements | server p50 | SPCS est. save | SPCS est. save + refresh |
+|---|---|---|---|---|---|---|---|
+| Procedure, standard — definition | 3817 | 4473 | 1209 | 1 | 3725 | ~3.7 s | ~4.5 s |
+| Procedure, standard — + PI | 4704 | 5068 | 1418 | 1 | 4542 | ~4.6 s | ~5.6 s |
+| Procedure, hybrid — definition | 2221 | 2962 | 1037 | 1 | 2120 | ~2.1 s | ~2.7 s |
+| Procedure, hybrid — + PI | 2773 | 3025 | 1033 | 1 | 2675 | ~2.6 s | ~3.2 s |
+| Python, standard — definition | 2627 | 2841 | 1112 | 5 | 2115 | ~1.9 s | ~2.6 s |
+| Python, standard — + PI | 3546 | 3797 | 1189 | 7 | 2840 | ~2.6 s | ~3.3 s |
+| **Python, hybrid — definition** | **1096** | 1280 | 1012 | 5 | **547** | **~0.4 s** | **~1.0 s** |
+| **Python, hybrid — + PI** | **1548** | 2085 | 966 | 7 | **819** | **~0.6 s** | **~1.1 s** |
+
+ms unless marked. SPCS estimate = laptop time − statements × (laptop round trip 156 ms − 15 ms SPCS gap from FINDINGS.md).
+
+- **The harness matches production:** procedure on standard tables, 3.8–4.7 s here, against 4.0–4.7 s measured in SPCS (FINDINGS.md). It is one call, so the laptop adds little.
+- **Hybrid tables help the procedure (−40 %) but it stays at 2–3 s.** The procedure's own overhead (start-up, variable unpacking) doesn't shrink.
+- **Python + hybrid is 2–2.5× faster than procedure + hybrid**, on server time alone (547 / 819 ms vs 2120 / 2675 ms), so the laptop round trips don't explain the gap.
+- **Refresh is ~1 s from the laptop and unchanged by hybrid** (3 reads; no result cache on hybrid tables). In SPCS it's an estimated ~0.6 s. The save could return the written rows and drop one or two of these reads: a separate change.
+- Not measured: the save through the running SPCS app. That is the acceptance check after migration (`op_log.duration_ms` and the browser timing), with the rollback script ready.
